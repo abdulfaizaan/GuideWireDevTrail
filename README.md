@@ -159,13 +159,6 @@ gigshield/
 ├── data/                   # Sample weather, AQI, and worker datasets
 └── README.md
 ```
-
----
-
-## Submission Links
-- **GitHub Repository:** _[link to be added]_](https://github.com/abdulfaizaan/GuideWireDevTrail.git)
-- **Phase 1 Demo Video (2 min):** 
-
 ---
 
 *GigShield — Because every delivery partner deserves a safety net that works as hard as they do.*
