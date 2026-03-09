@@ -1,276 +1,199 @@
-# GuideWireDevTrail
-# 🛵 GigShield — AI-Powered Parametric Income Insurance for Food Delivery Partners
+# 🛵 GigShield — Income Protection for Food Delivery Partners
 
-> **Guidewire DEVTrails 2026 | University Hackathon**
+> **Guidewire DEVTrails 2026 **
 > Persona: Food Delivery Partners (Zomato / Swiggy)
 > Platform: Web + Mobile (Progressive Web App)
 
 ---
 
-## 📌 Problem Statement
+## The Person Behind Every Doorbell Ring
 
-India's food delivery partners (Zomato, Swiggy) are the last-mile backbone of urban food commerce. A delivery partner in a metro city typically earns ₹15,000–₹25,000/month — but **has zero protection** when external disruptions prevent them from working.
+Meet **Ramesh**.
 
-**Key pain points:**
-- Heavy rain, floods, or extreme heat can wipe out 2–4 working days per month
-- Sudden curfews or local bandhs shut down entire delivery zones without notice
-- Severe air pollution (AQI > 300) forces gig workers off the road in cities like Delhi and Mumbai
-- **No existing insurance product covers this income gap** — health and vehicle insurance don't apply here
+He's 27, lives in a rented room in Govandi, Mumbai, and has been delivering food on Swiggy for two years. On a good day — clear skies, lots of orders, no traffic — he makes around ₹750. That's enough to cover rent, send some money home to his family in UP, and maybe save a little.
 
-> GigShield insures the **income lost** during verified external disruptions — not health, life, accidents, or vehicle damage.
+But then July arrives.
+
+The skies open up. Water fills the streets. His phone buzzes with cancelled orders. He sits under a chai stall watching the rain, doing the math in his head. Every hour he's not riding is money he doesn't have. By the end of the week, he's down ₹3,200 — nearly 60% of what he was counting on.
+
+There's no insurance that covers this. No form to fill. No one to call. **He just absorbs it.**
+
+That's the problem GigShield exists to solve.
 
 ---
 
-## 👤 Persona: The Food Delivery Partner
+## What We're Building
 
-**Name:** Ramesh (representative persona)
-**Platform:** Zomato / Swiggy
-**City:** Tier-1 metro (Delhi, Mumbai, Bengaluru, Hyderabad)
-**Typical earnings:** ₹600–₹900/day (6–8 hours active)
-**Weekly earnings:** ₹3,500–₹5,500
-**Pain:** Loses 20–30% of monthly income during disruption events with no recourse
+GigShield is a **parametric income insurance platform** built specifically for food delivery partners on Zomato and Swiggy. When a verified external disruption — a flood, a heatwave, a declared bandh — prevents Ramesh from working, **GigShield automatically detects it and pays him within hours.** No claims to file. No proof to submit. No adjuster to convince.
 
-### Persona-Based Scenarios
+He opens the app and sees: *"Mumbai flood alert detected in your zone. ₹680 has been credited to your UPI."*
 
-| Scenario | Disruption | Income Impact | GigShield Response |
+That's it. That's the whole experience.
+
+> We insure the **income lost** during disruptions — not his bike, not his health, not his life. Just the wages stolen by events he had no control over.
+
+---
+
+## The Disruptions We Cover
+
+We focused on what actually stops a Zomato/Swiggy partner from working in an Indian metro city. Here are the five triggers we're building around:
+
+| # | What Happens | How We Know | What Ramesh Gets |
 |---|---|---|---|
-| Monsoon flooding in Mumbai | Rainfall > 50mm in 3hrs | Full day lost (~₹700) | Auto-trigger + payout within 2 hrs |
-| Delhi smog emergency | AQI > 350 (Severe+) | 4–6 hrs lost (~₹450) | Partial day payout triggered |
-| Local bandh in Bengaluru | Government-declared curfew | Full day lost (~₹700) | Social disruption trigger activated |
-| Cyclone warning in Chennai | IMD Red Alert issued | 2-day loss (~₹1,400) | Multi-day parametric payout |
-| Heatwave (temp > 45°C) | IMD extreme heat alert | Reduced hours (~₹350) | Partial payout for heat threshold breach |
+| 🌧️ Heavy Rain / Flood | Rainfall ≥ 35mm in 3 hrs, or IMD Orange/Red Alert | IMD + OpenWeatherMap API | Full or partial day payout |
+| 🌡️ Extreme Heat | Temp ≥ 43°C + official IMD Heat Wave declaration | IMD Heat Wave alerts | Partial day payout (4 hrs) |
+| 😷 Severe Air Pollution | AQI ≥ 301 (Severe) for 4+ hrs in his zone | CPCB AQI API | Partial day payout |
+| 🚫 Bandh / Curfew | Official government curfew or civic strike in his pincode | Govt. feeds + news NLP | Full day payout |
+| 📵 Platform Outage | Zomato/Swiggy app down 2+ hrs during peak meal times | Platform status mock API | Proportional payout |
+
+These aren't hypotheticals. Mumbai floods every monsoon. Delhi chokes every winter. Bandhs happen without warning. **These are real weeks out of real paychecks.**
 
 ---
 
-## 🔄 Application Workflow
+## How It Works — The Full Journey
 
-```
-[Worker Onboarding] ──► [Risk Profiling & Premium Calculation] ──► [Weekly Policy Purchase]
-        │                                                                      │
-        ▼                                                                      ▼
-[Active Coverage Week]  ◄──────────────────────────────────  [Real-Time Trigger Monitoring]
-        │                                                                      │
-        ▼                                                                      │
-[Disruption Detected] ◄────────────────────────────────────────────────────────
-        │
-        ▼
-[Fraud Validation Layer] ──► [PASS] ──► [Auto Claim Initiation] ──► [Instant Payout (UPI/Wallet)]
-        │
-        ▼ [FAIL]
-[Flag for Review + Worker Notified]
-```
+### Step 1: Onboarding (under 3 minutes)
+Ramesh downloads the app or opens it in his browser. He enters his Swiggy Partner ID, his city, the pincodes he usually works in, and his average weekly earnings. A quick Aadhaar eKYC (or manual ID upload for the MVP) and he's in. The whole thing takes less time than waiting for a traffic light.
 
-### Detailed Flow
+### Step 2: Picking a Plan
+He sees three options, priced weekly — because like him, GigShield thinks in weeks, not years.
 
-**1. Onboarding (< 3 minutes)**
-- Worker signs up via mobile PWA or web
-- Links their Zomato/Swiggy Partner ID (or manually enters details)
-- Provides city, home zone/pincode, and average weekly earnings
-- Aadhaar-based eKYC (or manual ID upload for MVP)
-- AI assigns a Risk Profile Score (RPS)
+| Plan | Weekly Cost | Max Payout/Week | Who It's For |
+|---|---|---|---|
+| 🥈 Silver | ₹29 | ₹1,400 | Part-timers, students doing weekend deliveries |
+| 🥇 Gold | ₹49 | ₹2,800 | Full-time partners, 6 days a week |
+| 💎 Platinum | ₹79 | ₹4,500 | Top earners, high-risk monsoon zones |
 
-**2. Weekly Policy Purchase**
-- Worker selects coverage tier (Silver / Gold / Platinum) based on their weekly income
-- Premium deducted weekly — aligns with gig payout cycles
-- Policy activates from Monday 00:00 to Sunday 23:59
+₹49 a week is ₹7 a day. Less than a cutting chai. For full income protection against the Indian sky.
 
-**3. Real-Time Trigger Monitoring**
-- System continuously polls weather, pollution, and civic alert APIs for the worker's active zone
-- When a parametric threshold is crossed (see triggers below), the system automatically initiates a claim — **no manual filing required**
+His premium isn't static either. Our AI looks at his zone's historical flood/pollution data, the coming week's weather forecast, and his own claims history — and adjusts his premium accordingly. If he works in a zone that rarely floods, he pays less. If monsoon forecasts look bad in his area next week, the system flags it and may offer him additional coverage proactively.
 
-**4. Fraud Detection**
-- Cross-validates disruption claims against GPS activity data, platform order logs, and third-party weather data
-- Anomaly scoring flags suspicious patterns (e.g., claiming during a "rain event" but GPS shows indoor movement all day)
+### Step 3: The Week Begins
+His policy runs Monday to Sunday. He works normally. The system quietly watches — polling weather stations, AQI monitors, and civic alert feeds for his zone every 15 minutes.
 
-**5. Payout**
-- Verified claims are paid within 2–4 hours via UPI / Paytm / PhonePe (mock in MVP)
-- Worker receives an in-app notification with payout breakdown
+### Step 4: Something Goes Wrong
+A Red Alert drops for his area. Rainfall crosses the threshold. The system doesn't wait for Ramesh to notice or react.
+
+Within minutes:
+- The trigger is confirmed against a second data source
+- His GPS activity (or lack of it) is cross-checked
+- His platform order data is validated
+- The fraud engine clears the claim
+- A payout is initiated to his UPI
+
+He gets a notification: *"Heavy rain detected in Andheri East. We've initiated a ₹680 payout to your account. Stay safe."*
+
+### Step 5: The Dashboard
+Ramesh can open his app any time and see:
+- How much income he's been protected this month
+- His active policy and what it covers
+- His claims history with payout breakdowns
+- A simple risk calendar showing disruption-prone days ahead
 
 ---
 
-## 💰 Weekly Premium Model
+## How We Catch Fraud (Without Punishing Honest Workers)
 
-### Design Philosophy
-Food delivery workers are paid weekly (or bi-weekly) by platforms. A weekly insurance cycle mirrors this rhythm, making premiums feel like a natural deduction rather than a large annual commitment.
+Fraud detection in parametric insurance is tricky — you can't make honest workers feel like suspects. Our approach is quiet and data-driven.
 
-### Coverage Tiers
+We cross-reference three things before every payout:
 
-| Tier | Weekly Premium | Max Weekly Payout | Coverage Hours/Day | Best For |
-|---|---|---|---|---|
-| 🥈 Silver | ₹29/week | ₹1,400 | Up to 4 hrs/day | Part-time partners (<30 hrs/week) |
-| 🥇 Gold | ₹49/week | ₹2,800 | Up to 8 hrs/day | Full-time partners (30–50 hrs/week) |
-| 💎 Platinum | ₹79/week | ₹4,500 | Full day + surge protection | Top earners / high-risk zones |
+1. **Did the disruption actually happen?** Weather/AQI data from two independent sources must agree.
+2. **Was Ramesh in the affected zone?** GPS pings (with consent) confirm he was operating in the declared disruption area.
+3. **Does his behaviour match?** If there's an active rain alert but his order history shows 12 completed deliveries that afternoon, something doesn't add up.
 
-> **Effective cost:** ₹4–11/day — less than a cup of chai ☕
-
-### Dynamic Premium Adjustment (AI-Powered)
-The base premium is adjusted each week using the worker's **Risk Profile Score (RPS)**, which factors in:
-- Historical disruption frequency in their operating zone (last 90 days)
-- Seasonal risk calendar (monsoon months = higher base)
-- Worker's claims history and anomaly score
-- City-level pollution and weather forecast for the upcoming week
-
-**Example:** A Swiggy partner in Andheri West (Mumbai) during July monsoon season may see their Gold tier adjusted from ₹49 → ₹61/week due to elevated flood risk in their zone. Conversely, a partner in a historically low-disruption zone during winter may see a ₹5–8 discount.
+We use an **Isolation Forest anomaly model** that learns the difference between a real disruption pattern and an outlier. Workers who score above a fraud threshold aren't auto-rejected — their claims are flagged for a fast human review. No one gets punished without a second look.
 
 ---
 
-## ⚡ Parametric Triggers
+## The AI/ML Layer
 
-All triggers are **objective, third-party-verified, and auto-executed** — no human adjuster involved.
+We're not using AI as a buzzword. Here's exactly what it does:
 
-| # | Trigger Name | Data Source | Threshold | Payout Type |
-|---|---|---|---|---|
-| T1 | **Heavy Rain / Flood** | IMD API, OpenWeatherMap | Rainfall ≥ 35mm in 3 hrs OR IMD Orange/Red Alert | Full/partial day payout |
-| T2 | **Extreme Heat** | IMD Heat Wave Alert | Temperature ≥ 43°C + IMD Heat Wave declaration | Partial day (4 hrs) |
-| T3 | **Severe Air Pollution** | CPCB AQI API | AQI ≥ 301 (Severe) for ≥ 4 hrs in worker's zone | Partial day payout |
-| T4 | **Civic Disruption / Bandh** | Govt. alert feeds, news NLP | Official curfew / bandh notice in worker's pincode zone | Full day payout |
-| T5 | **Platform Outage** | Zomato/Swiggy status mock API | App downtime ≥ 2 hrs during peak hours (12–2pm, 7–9pm) | Proportional payout |
+**Dynamic Premium Engine (XGBoost)**
+Takes in zone-level weather history, seasonal patterns, the worker's risk profile, and next-week forecasts. Outputs a weekly premium multiplier. Retrained monthly as new weather data comes in.
 
-> Payout amount = (Worker's declared daily average earnings) × (disruption hours / standard working hours) × tier multiplier
+**Risk Profile Scoring**
+Every new worker gets a score (0–100) based on where they operate, how long they've been on the platform, and historical disruption frequency in their zone. This feeds into their tier pricing and payout eligibility.
 
----
+**Fraud Detection (Isolation Forest)**
+Unsupervised anomaly detection on claims data. Flags patterns that deviate significantly from the worker's own history and from their zone peers. Tuned to minimize false positives — we'd rather let an edge case through than wrongly reject a genuine claim.
 
-## 🤖 AI/ML Integration Plan
-
-### 1. Dynamic Premium Engine
-- **Model:** Gradient Boosted Trees (XGBoost / LightGBM)
-- **Inputs:** Zone-level historical weather data, seasonal patterns, worker profile, claims history, city-level risk index
-- **Output:** Weekly premium multiplier per worker
-- **Training data:** IMD historical rainfall/temperature (public), CPCB AQI archives (public), synthetic worker data for MVP
-
-### 2. Risk Profile Scoring (RPS)
-- **Model:** Logistic Regression + rule-based scoring
-- **Inputs:** Operating zone flood/drought history, typical working hours, tenure on platform, zone congestion index
-- **Output:** RPS score (0–100) → maps to risk band (Low / Medium / High / Very High)
-
-### 3. Fraud Detection Engine
-- **Model:** Isolation Forest (anomaly detection) + rule-based flags
-- **Key signals:**
-  - GPS location mismatch (claiming disruption but phone shows stationary indoor location)
-  - Frequency anomaly (worker filing claims far more often than zone peers)
-  - Weather data vs. claim timing mismatch
-  - Duplicate claim attempts across time windows
-  - Platform order data cross-check (active orders during "disruption" period)
-- **Output:** Fraud Risk Score (0–1); scores > 0.75 flagged for manual review
-
-### 4. Disruption NLP Classifier (for Civic Events)
-- **Model:** Fine-tuned BERT / DistilBERT (or rule-based regex for MVP)
-- **Input:** News headlines, Twitter/X feeds, government press release RSS feeds
-- **Output:** Binary classification — civic disruption Yes/No + affected pincodes
+**Civic Disruption NLP Classifier**
+A fine-tuned DistilBERT model (rule-based regex for the MVP) that scans government RSS feeds and news sources for bandh/curfew declarations and maps them to pincodes.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-### Frontend
-| Layer | Technology | Rationale |
-|---|---|---|
-| Web | React.js + TailwindCSS | Fast, component-based, responsive |
-| Mobile | React Native / PWA | Single codebase for iOS + Android; PWA for low-end devices |
-| State Management | Redux Toolkit | Predictable state for policy/claims flow |
-| Maps | Google Maps API / Leaflet.js | Zone visualization, GPS validation |
-
-### Backend
-| Layer | Technology | Rationale |
-|---|---|---|
-| API Server | Node.js + Express (or FastAPI) | Fast REST APIs; Python for ML model serving |
-| Database | PostgreSQL | Structured policy/claims data |
-| Cache | Redis | Real-time trigger state, session management |
-| Auth | Firebase Auth / JWT | Simple OTP-based login for mobile workers |
-
-### AI/ML
-| Component | Technology |
-|---|---|
-| Premium Engine | Python + Scikit-learn / XGBoost |
-| Fraud Detection | Python + Isolation Forest (Scikit-learn) |
-| NLP Classifier | Hugging Face Transformers (DistilBERT) or rule-based for MVP |
-| Model Serving | FastAPI microservice |
-
-### Integrations (APIs)
-| Integration | Source | Mode |
-|---|---|---|
-| Weather | OpenWeatherMap API (free tier) + IMD public data | Live |
-| Air Quality | CPCB AQI API / OpenAQ | Live |
-| Platform Activity | Zomato/Swiggy Partner API | Simulated/Mock |
-| Payment | Razorpay Test Mode / UPI Simulator | Mock/Sandbox |
-| Civic Alerts | RSS feeds + custom scraper | Simulated for MVP |
-
-### Infrastructure
-- **Hosting:** Vercel (frontend) + Railway / Render (backend) — free tiers for hackathon
-- **CI/CD:** GitHub Actions
-- **Containerization:** Docker (for ML service)
+**Frontend:** React.js (web) + React Native PWA (mobile) + TailwindCSS
+**Backend:** Node.js + Express for APIs, FastAPI for ML model serving
+**Database:** PostgreSQL (policy/claims data) + Redis (real-time trigger state)
+**ML:** Python + Scikit-learn / XGBoost / Hugging Face Transformers
+**Auth:** Firebase OTP (phone number login — no passwords for gig workers)
+**Payments:** Razorpay Test Mode / UPI Simulator
+**APIs:** OpenWeatherMap (free tier), CPCB AQI, IMD public data, mock Zomato/Swiggy API
+**Hosting:** Vercel (frontend) + Railway (backend) — free tiers
 
 ---
 
-## 📅 Development Plan (6-Week Breakdown)
+## Development Roadmap
 
-### Phase 1 — Weeks 1–2 (Mar 4–20): Ideation & Foundation ✅
-- [x] Finalize persona, disruption triggers, and pricing model
-- [x] Define system architecture
-- [ ] Set up GitHub repo, project scaffolding
-- [ ] Build basic onboarding UI (web + mobile)
-- [ ] Integrate OpenWeatherMap API (live weather for worker's zone)
-- [ ] Draft premium calculation logic (rule-based first, ML later)
+### ✅ Phase 1 (Mar 4–20): Foundations
+- Finalize persona, triggers, pricing model
+- System architecture + repo setup
+- Basic onboarding UI (web + mobile)
+- OpenWeatherMap API integration
+- Rule-based premium calculation (v1)
 
-### Phase 2 — Weeks 3–4 (Mar 21–Apr 4): Automation & Protection
-- [ ] Complete registration + KYC flow
-- [ ] Build policy management module (create, view, renew weekly policy)
-- [ ] Implement dynamic premium calculation (ML model integration)
-- [ ] Build 3–5 automated parametric triggers
-- [ ] Basic fraud detection (rule-based anomaly flags)
-- [ ] Claims management UI — zero-touch auto-claim flow
-- [ ] Mock payout notification system
+### 🔨 Phase 2 (Mar 21–Apr 4): Core Product
+- Full registration + eKYC flow
+- Weekly policy creation and management
+- ML-powered dynamic premium engine
+- 3–5 automated parametric triggers live
+- Zero-touch claims flow (auto-initiation on trigger)
+- Rule-based fraud detection (v1)
+- Mock payout notifications
 
-### Phase 3 — Weeks 5–6 (Apr 5–17): Scale & Optimise
-- [ ] Advanced fraud detection (Isolation Forest + GPS validation)
-- [ ] Instant payout integration (Razorpay test mode)
-- [ ] Worker dashboard (earnings protected, active coverage, claims history)
-- [ ] Admin/Insurer dashboard (loss ratios, predictive analytics)
-- [ ] Disruption simulation tool (trigger fake rainstorm for demo)
-- [ ] Performance optimization + UI polish
-- [ ] Final 5-min demo video + pitch deck
+### 🚀 Phase 3 (Apr 5–17): Scale & Polish
+- Advanced fraud detection (Isolation Forest + GPS validation)
+- Razorpay test mode payout integration
+- Worker dashboard (earnings protected, claims history, risk calendar)
+- Admin/Insurer dashboard (loss ratios, predictive disruption analytics)
+- Disruption simulator for demo (trigger a fake rainstorm in the UI)
+- Final 5-minute demo video + pitch deck
 
 ---
 
-## 🏗️ Repository Structure
+## Repository Structure
 
 ```
 gigshield/
 ├── frontend/               # React.js Web App
 │   ├── src/
-│   │   ├── components/     # UI components
+│   │   ├── components/
 │   │   ├── pages/          # Onboarding, Dashboard, Policy, Claims
-│   │   └── store/          # Redux state
-├── mobile/                 # React Native / PWA
+│   │   └── store/          # Redux state management
+├── mobile/                 # React Native PWA
 ├── backend/
-│   ├── api/                # Express/FastAPI routes
-│   ├── services/           # Trigger engine, payout, fraud
-│   └── db/                 # PostgreSQL schemas
+│   ├── api/                # REST API routes
+│   ├── services/           # Trigger engine, payout processor, fraud scorer
+│   └── db/                 # PostgreSQL schemas + migrations
 ├── ml/
-│   ├── premium_engine/     # XGBoost premium model
-│   ├── fraud_detection/    # Isolation Forest
-│   └── nlp_classifier/     # Civic disruption NLP
-├── mock-apis/              # Simulated platform/payment APIs
-├── data/                   # Sample datasets (weather, AQI)
+│   ├── premium_engine/     # XGBoost weekly premium model
+│   ├── fraud_detection/    # Isolation Forest anomaly model
+│   └── nlp_classifier/     # Civic disruption classifier
+├── mock-apis/              # Simulated Zomato/Swiggy + payment APIs
+├── data/                   # Sample weather, AQI, and worker datasets
 └── README.md
 ```
 
 ---
 
-## 🎯 Why GigShield Will Win
-
-1. **Zero-touch experience** — the worker never needs to file a claim. The system detects and pays automatically.
-2. **Hyper-local precision** — risk and triggers are scoped to the worker's actual operating pincode, not a city-wide average.
-3. **Weekly micro-premiums** — ₹29–79/week is psychologically accessible and financially viable for gig workers.
-4. **AI that actually matters** — dynamic pricing adjusts weekly based on real forecast data, not static actuarial tables.
-5. **Trust through transparency** — every payout comes with a clear breakdown of what triggered it and how the amount was calculated.
+## Submission Links
+- **GitHub Repository:** _[link to be added]_](https://github.com/abdulfaizaan/GuideWireDevTrail.git)
+- **Phase 1 Demo Video (2 min):** 
 
 ---
 
-## 📎 Submission Links
-- **GitHub Repository:** _[to be added]_
-- **Phase 1 Demo Video:** _[to be added — 2 min]_
-
----
-
-> *GigShield — Because every delivery deserves a safety net.*
+*GigShield — Because every delivery partner deserves a safety net that works as hard as they do.*
