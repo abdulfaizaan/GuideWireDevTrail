@@ -137,34 +137,6 @@ A fine-tuned DistilBERT model (rule-based regex for the MVP) that scans governme
 
 ---
 
-## Development Roadmap
-
-### ✅ Phase 1 (Mar 4–20): Foundations
-- Finalize persona, triggers, pricing model
-- System architecture + repo setup
-- Basic onboarding UI (web + mobile)
-- OpenWeatherMap API integration
-- Rule-based premium calculation (v1)
-
-### 🔨 Phase 2 (Mar 21–Apr 4): Core Product
-- Full registration + eKYC flow
-- Weekly policy creation and management
-- ML-powered dynamic premium engine
-- 3–5 automated parametric triggers live
-- Zero-touch claims flow (auto-initiation on trigger)
-- Rule-based fraud detection (v1)
-- Mock payout notifications
-
-### 🚀 Phase 3 (Apr 5–17): Scale & Polish
-- Advanced fraud detection (Isolation Forest + GPS validation)
-- Razorpay test mode payout integration
-- Worker dashboard (earnings protected, claims history, risk calendar)
-- Admin/Insurer dashboard (loss ratios, predictive disruption analytics)
-- Disruption simulator for demo (trigger a fake rainstorm in the UI)
-- Final 5-minute demo video + pitch deck
-
----
-
 ## Repository Structure
 
 ```
