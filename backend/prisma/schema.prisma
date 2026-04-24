@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                  String   @id @default(cuid())
+  phone               String   @unique
+  aadhaarHash         String?
+  platform            String
+  partnerId           String?
+  profession          String   @default("delivery_rider")
+  city                String
+  pincode             String?
+  zoneId              String?
+  lat                 Float?
+  lng                 Float?
+  dailyEarnings       Int      @default(900)
+  riskScore           Int?
+  tier                String?
+  deviceFingerprint   String?
+  paymentConsistency  Int      @default(90)
+  plan                String   @default("Standard")
+  status              String   @default("active")
+  enrolledAt          DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  policies            Policy[]
+  claims              Claim[]
+}
+
+model Policy {
+  id                     String   @id @default(cuid())
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id])
+  city                   String
+  pincode                String?
+  profession             String
+  plan                   String
+  premium                Float
+  dailyEarnings          Int
+  coverTypes             String[]
+  coverageLimit          Int
+  coveragePercent        Float
+  status                 String   @default("ACTIVE")
+  paused                 Boolean  @default(false)
+  enrolledAt             DateTime @default(now())
+  razorpaySubscriptionId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model Claim {
+  id                  String   @id @default(cuid())
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id])
+  type                String
+  triggerIcon         String?
+  triggerType         String?
+  date                String
+  payout              Float
+  severity            Float?
+  status              String   @default("Processing")
+  fraudScore          Float?
+  fraudClassification String?
+  reasons             String[]
+  aiExplanation       String?
+  timeline            String[]
+  paidAt              DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  payouts             Payout[]
+}
+
+model Payout {
+  id            String   @id @default(cuid())
+  claimId       String
+  claim         Claim    @relation(fields: [claimId], references: [id])
+  transactionId String?
+  gateway       String?
+  amount        Float
+  status        String
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

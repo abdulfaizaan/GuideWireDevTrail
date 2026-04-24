@@ -1,23 +1,20 @@
 /**
- * AQI Service — Real-time Air Quality Integration
+ * AQI Service — Production Air Quality Integration
  *
- * Uses the WAQI.info (World Air Quality Index) public API as a second
- * real oracle alongside Open-Meteo weather data.
- *
- * Demo token works without registration and is sufficient for hackathon use.
- * For production, obtain a free key at https://aqicn.org/data-platform/token/
+ * Primary: WAQI.info API (token from env var)
+ * Fallback: Simulated data calibrated to Indian city baselines
  */
 
+import { getPincodeLocation } from "./pincodeService";
+
 export interface AQIData {
-  aqi: number;               // 0–500+ USAQI scale
-  dominant: string;           // dominant pollutant (pm25, pm10, o3, etc.)
-  station: string;            // monitoring station name
+  aqi: number;
+  dominant: string;
+  station: string;
   city: string;
   isLive: boolean;
   fetchedAt: string;
 }
-
-import { getPincodeLocation } from "./pincodeService";
 
 export interface AQITriggerResult {
   triggered: boolean;
@@ -28,25 +25,35 @@ export interface AQITriggerResult {
   data: AQIData;
 }
 
-// ---------------------------------------------------------------------------
-// WAQI.info API — free, demo token works globally
-// ---------------------------------------------------------------------------
-const WAQI_TOKEN = "demo"; // replace with real token for production
+// ── Config ───────────────────────────────────────────────────────────────────
+const WAQI_TOKEN = process.env.WAQI_API_TOKEN || "demo";
+const AQI_TRIGGER_THRESHOLD = 200;
+const AQI_BASE_PAYOUT = 380;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const AQI_CITY_MAP: Record<string, string> = {
-  mumbai: "mumbai",
-  delhi: "delhi",
-  bangalore: "bangalore",
-  chennai: "chennai",
-  kolkata: "kolkata",
-  hyderabad: "hyderabad",
-  pune: "pune",
-  jaipur: "jaipur",
+  mumbai: "mumbai", delhi: "delhi", bangalore: "bangalore", chennai: "chennai",
+  kolkata: "kolkata", hyderabad: "hyderabad", pune: "pune", jaipur: "jaipur",
+  lucknow: "lucknow", chandigarh: "chandigarh",
 };
 
-// ---------------------------------------------------------------------------
-// AQI risk classification (US EPA standard)
-// ---------------------------------------------------------------------------
+// ── Cache ────────────────────────────────────────────────────────────────────
+const aqiCache: Map<string, { data: AQIData; expires: number }> = new Map();
+
+function getCached(key: string): AQIData | null {
+  const entry = aqiCache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  aqiCache.delete(key);
+  return null;
+}
+
+// ── Indian city AQI baselines (calibrated to real averages) ──────────────────
+const CITY_AQI_BASELINE: Record<string, number> = {
+  delhi: 220, lucknow: 180, kolkata: 150, mumbai: 100,
+  chennai: 80, bangalore: 70, hyderabad: 90, pune: 85,
+  jaipur: 130, chandigarh: 100,
+};
+
 function classifyAQI(aqi: number): AQITriggerResult["riskLevel"] {
   if (aqi <= 50) return "GOOD";
   if (aqi <= 100) return "MODERATE";
@@ -56,38 +63,29 @@ function classifyAQI(aqi: number): AQITriggerResult["riskLevel"] {
   return "HAZARDOUS";
 }
 
-// ---------------------------------------------------------------------------
-// Simulated fallback
-// ---------------------------------------------------------------------------
 function getSimulatedAQI(city: string): AQIData {
-  // Indian cities often have moderate-to-poor AQI
-  const baseAQI = city.toLowerCase() === "delhi" ? 180 : 90;
-  const noise = Math.floor(Math.random() * 60) - 30;
-  const aqi = Math.max(20, Math.min(400, baseAQI + noise));
-
+  const base = CITY_AQI_BASELINE[city.toLowerCase()] || 100;
+  const noise = Math.floor(Math.random() * 50) - 25;
+  const aqi = Math.max(20, Math.min(450, base + noise));
   const pollutants = ["pm25", "pm10", "o3", "no2"];
-  const dominant = pollutants[Math.floor(Math.random() * pollutants.length)];
-
   return {
-    aqi,
-    dominant,
-    station: `${city} Central Monitor (Simulated)`,
-    city,
-    isLive: false,
+    aqi, dominant: pollutants[Math.floor(Math.random() * pollutants.length)],
+    station: `${city} Central (Simulated)`, city, isLive: false,
     fetchedAt: new Date().toISOString(),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Live AQI fetcher
-// ---------------------------------------------------------------------------
 export async function getAQIData(city: string = "mumbai", pincode?: string): Promise<AQIData> {
+  const cacheKey = pincode || city.toLowerCase();
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
   let fetchUrl = "";
-  let resolvedCityName = city;
+  let resolvedCity = city;
 
   if (pincode) {
     const loc = getPincodeLocation(pincode);
-    resolvedCityName = loc.city;
+    resolvedCity = loc.city;
     fetchUrl = `https://api.waqi.info/feed/geo:${loc.lat};${loc.lon}/?token=${WAQI_TOKEN}`;
   } else {
     const slug = AQI_CITY_MAP[city.toLowerCase().trim()] || city.toLowerCase().trim();
@@ -100,55 +98,35 @@ export async function getAQIData(city: string = "mumbai", pincode?: string): Pro
     const res = await fetch(fetchUrl, { signal: controller.signal });
     clearTimeout(timeout);
 
-    if (!res.ok) {
-      console.log(`[AQI] WAQI API returned ${res.status} — using simulated data`);
-      return getSimulatedAQI(city);
-    }
+    if (!res.ok) return getSimulatedAQI(resolvedCity);
 
     const json: any = await res.json();
-    if (json.status !== "ok" || !json.data) {
-      console.log("[AQI] Unexpected response structure — using fallback");
-      return getSimulatedAQI(resolvedCityName);
-    }
+    if (json.status !== "ok" || !json.data) return getSimulatedAQI(resolvedCity);
 
     const d = json.data;
-    return {
+    const result: AQIData = {
       aqi: typeof d.aqi === "number" ? d.aqi : 50,
       dominant: d.dominentpol || "pm25",
-      station: d.city?.name || `${resolvedCityName} Monitor`,
-      city: resolvedCityName,
-      isLive: true,
+      station: d.city?.name || `${resolvedCity} Monitor`,
+      city: resolvedCity, isLive: true,
       fetchedAt: new Date().toISOString(),
     };
+
+    aqiCache.set(cacheKey, { data: result, expires: Date.now() + CACHE_TTL_MS });
+    return result;
   } catch (err: any) {
-    console.log(`[AQI] Fetch failed (${err.message}) — using simulated data`);
-    return getSimulatedAQI(resolvedCityName);
+    console.log(`[AQI] Fetch failed (${err.message}) — using simulated`);
+    return getSimulatedAQI(resolvedCity);
   }
 }
-
-// ---------------------------------------------------------------------------
-// AQI Trigger evaluation
-// ---------------------------------------------------------------------------
-const AQI_TRIGGER_THRESHOLD = 200; // "Unhealthy" on US EPA scale
-const AQI_BASE_PAYOUT = 380;
 
 export function evaluateAQITrigger(data: AQIData): AQITriggerResult {
   const riskLevel = classifyAQI(data.aqi);
   const triggered = data.aqi >= AQI_TRIGGER_THRESHOLD;
-
-  // Scale payout by severity above threshold
   let payout = 0;
   if (triggered) {
     const severity = Math.min((data.aqi - AQI_TRIGGER_THRESHOLD) / 200, 1.0);
     payout = Math.round(AQI_BASE_PAYOUT * (1.0 + severity * 0.5));
   }
-
-  return {
-    triggered,
-    aqi: data.aqi,
-    threshold: AQI_TRIGGER_THRESHOLD,
-    riskLevel,
-    payout,
-    data,
-  };
+  return { triggered, aqi: data.aqi, threshold: AQI_TRIGGER_THRESHOLD, riskLevel, payout, data };
 }

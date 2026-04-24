@@ -253,20 +253,22 @@ export async function evaluateAllTriggers(
   }
 
   if (outageResult.active) {
+    const outagePayout = outageResult.severity === "full" ? 800 : outageResult.severity === "partial" ? 300 : 0;
     candidates.push({
       type: "outage",
       label: "Platform Outage",
       icon: "📵",
-      payout: scalePayoutByIncome(outageResult.payout, dailyEarnings),
+      payout: scalePayoutByIncome(outagePayout, dailyEarnings),
     });
   }
 
   if (bandhResult.active) {
+    const bandhPayout = bandhResult.severity === "full" ? 800 : bandhResult.severity === "partial" ? 300 : 0;
     candidates.push({
       type: "bandh",
       label: "Civil Bandh",
       icon: "🚫",
-      payout: scalePayoutByIncome(bandhResult.payout, dailyEarnings),
+      payout: scalePayoutByIncome(bandhPayout, dailyEarnings),
     });
   }
 

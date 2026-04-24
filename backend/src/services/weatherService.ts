@@ -177,11 +177,11 @@ export async function getWeatherByPincode(pincode: string): Promise<WeatherData>
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
-    if (!res.ok) return getSimulatedWeather(loc.locality);
+    if (!res.ok) return getSimulatedWeather(loc.city);
 
     const data: any = await res.json();
     const current = data.current;
-    if (!current) return getSimulatedWeather(loc.locality);
+    if (!current) return getSimulatedWeather(loc.city);
 
     const { condition, description } = wmoToCondition(current.weather_code ?? 0);
 
@@ -192,13 +192,13 @@ export async function getWeatherByPincode(pincode: string): Promise<WeatherData>
       condition,
       description,
       windSpeed: Math.round((current.wind_speed_10m ?? 0) / 3.6 * 10) / 10,
-      city: `${loc.locality}, ${loc.city}`,
+      city: `${loc.city}, ${loc.state}`,
       isLive: true,
       fetchedAt: new Date().toISOString(),
     };
   } catch (err: any) {
     console.log(`[Weather] Pincode fetch failed (${err.message}) — using simulated data`);
-    return getSimulatedWeather(loc.locality);
+    return getSimulatedWeather(loc.city);
   }
 }
 

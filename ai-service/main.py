@@ -1,10 +1,19 @@
+"""
+GigShield AI Service v2.0 — Production ML Scoring Engine
+=========================================================
+Endpoints:
+  POST /predict-premium   → dynamic premium multiplier (XGBoost)
+  POST /predict-fraud     → fraud probability (RandomForest + IsolationForest)
+  POST /predict-risk      → multi-factor risk score
+  GET  /health            → model metrics & status
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import numpy as np
 import xgboost as xgb
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
-from sklearn.metrics import (
 from sklearn.metrics import (
     f1_score,
     mean_absolute_error,
@@ -14,390 +23,377 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
+from datetime import datetime
 
 SEED = 42
 RNG = np.random.default_rng(SEED)
 
-app = FastAPI(title="GigShield AI Service")
+app = FastAPI(title="GigShield AI Service", version="2.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-def clamp(value: float, minimum: float, maximum: float) -> float:
-    return max(minimum, min(maximum, value))
-
-
-def sigmoid(values: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-values))
-
-
-@app.get("/")
-def home():
-    return {
-        "project": "GigShield AI Service",
-        "status": "Running",
-        "health_check": "/health",
-        "predict_endpoint": "/predict",
-        "docs": "/docs",
-    }
+# ── Lookup Tables ─────────────────────────────────────────────────────────────
+CITY_RISK: dict[str, float] = {
+    "delhi": 0.82, "mumbai": 0.68, "kolkata": 0.72, "chennai": 0.58,
+    "bangalore": 0.45, "hyderabad": 0.50, "pune": 0.42, "jaipur": 0.55,
+    "lucknow": 0.60, "chandigarh": 0.48, "gurugram": 0.70, "noida": 0.72,
+}
+PROFESSION_RISK: dict[str, float] = {
+    "delivery_rider": 0.75, "cab_driver": 0.60, "auto_driver": 0.65,
+    "freelancer": 0.35, "street_vendor": 0.70, "construction": 0.80, "other": 0.50,
+}
+PROFESSION_INCOME: dict[str, float] = {
+    "delivery_rider": 900, "cab_driver": 1200, "auto_driver": 800,
+    "freelancer": 1500, "street_vendor": 600, "construction": 700, "other": 800,
+}
+SEASON_INDEX: dict[int, float] = {
+    1: 0.35, 2: 0.30, 3: 0.40, 4: 0.50, 5: 0.55, 6: 0.80,
+    7: 0.95, 8: 0.90, 9: 0.85, 10: 0.60, 11: 0.55, 12: 0.45,
+}
 
 
+def clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PREMIUM MODEL (XGBoost Regressor)
+# ═══════════════════════════════════════════════════════════════════════════════
 def build_premium_features(
-    zone_risk: np.ndarray,
-    seasonal_risk: np.ndarray,
-    risk_score: np.ndarray,
-    weeks_active: np.ndarray,
-    base_premium: np.ndarray,
+    zone_risk: np.ndarray, seasonal_risk: np.ndarray, risk_score: np.ndarray,
+    weeks_active: np.ndarray, base_premium: np.ndarray,
 ) -> np.ndarray:
     normalized_risk = risk_score / 100.0
     loyalty = 1.0 / np.sqrt(weeks_active + 1.0)
-    blended_pressure = zone_risk * 0.42 + seasonal_risk * 0.33 + normalized_risk * 0.25
-    return np.column_stack(
-        [
-            zone_risk,
-            seasonal_risk,
-            normalized_risk,
-            weeks_active,
-            base_premium,
-            zone_risk * seasonal_risk,
-            zone_risk * normalized_risk,
-            seasonal_risk * normalized_risk,
-            blended_pressure,
-            loyalty,
-            np.log1p(weeks_active),
-            base_premium / 149.0,
-        ]
+    blended = zone_risk * 0.42 + seasonal_risk * 0.33 + normalized_risk * 0.25
+    return np.column_stack([
+        zone_risk, seasonal_risk, normalized_risk, weeks_active, base_premium,
+        zone_risk * seasonal_risk, zone_risk * normalized_risk,
+        seasonal_risk * normalized_risk, blended, loyalty,
+        np.log1p(weeks_active), base_premium / 149.0,
+    ])
+
+
+def generate_premium_data(n: int = 8000):
+    zr = RNG.uniform(0.05, 0.98, n)
+    sr = RNG.uniform(0.05, 0.95, n)
+    rs = RNG.uniform(10, 98, n)
+    wa = RNG.integers(1, 156, n)
+    bp = RNG.choice([49.0, 89.0, 149.0], size=n, p=[0.35, 0.45, 0.20])
+    nr = rs / 100.0
+    sb = np.clip(wa / 104.0, 0.0, 1.2) * 0.12
+    vp = zr * 0.40 + sr * 0.34 + nr * 0.31
+    y = (0.95 + 0.70 * zr + 0.48 * sr + 0.42 * nr + 0.22 * zr * sr
+         + 0.16 * sr * nr + 0.10 * np.sqrt(bp / 49.0) - sb
+         + 0.08 * np.maximum(0.0, vp - 0.72) + RNG.normal(0, 0.035, n))
+    return build_premium_features(zr, sr, rs, wa, bp), np.clip(y, 1.0, 2.7)
+
+
+def train_premium_model():
+    X, y = generate_premium_data()
+    Xt, Xv, yt, yv = train_test_split(X, y, test_size=0.2, random_state=SEED)
+    m = xgb.XGBRegressor(
+        n_estimators=320, max_depth=5, learning_rate=0.045,
+        subsample=0.9, colsample_bytree=0.9, reg_lambda=1.2,
+        reg_alpha=0.08, min_child_weight=2, random_state=SEED,
     )
+    m.fit(Xt, yt, eval_set=[(Xv, yv)], verbose=False)
+    p = m.predict(Xv)
+    mae = float(mean_absolute_error(yv, p))
+    rmse = float(np.sqrt(np.mean((yv - p) ** 2)))
+    return m, {"mae": round(mae, 4), "rmse": round(rmse, 4), "samples": len(y)}
 
 
-def generate_premium_training_data(n_samples: int = 8000) -> tuple[np.ndarray, np.ndarray]:
-    zone_risk = RNG.uniform(0.05, 0.98, n_samples)
-    seasonal_risk = RNG.uniform(0.05, 0.95, n_samples)
-    risk_score = RNG.uniform(10, 98, n_samples)
-    weeks_active = RNG.integers(1, 156, n_samples)
-    base_premium = RNG.choice([49.0, 89.0, 149.0], size=n_samples, p=[0.35, 0.45, 0.20])
-
-    normalized_risk = risk_score / 100.0
-    stability_bonus = np.clip(weeks_active / 104.0, 0.0, 1.2) * 0.12
-    volatility_pressure = zone_risk * 0.40 + seasonal_risk * 0.34 + normalized_risk * 0.31
-    target = (
-        0.95
-        + 0.70 * zone_risk
-        + 0.48 * seasonal_risk
-        + 0.42 * normalized_risk
-        + 0.22 * zone_risk * seasonal_risk
-        + 0.16 * seasonal_risk * normalized_risk
-        + 0.10 * np.sqrt(base_premium / 49.0)
-        - stability_bonus
-        + 0.08 * np.maximum(0.0, volatility_pressure - 0.72)
-        + RNG.normal(0.0, 0.035, n_samples)
-    )
-    target = np.clip(target, 1.0, 2.7)
-
-    X = build_premium_features(zone_risk, seasonal_risk, risk_score, weeks_active, base_premium)
-    return X, target
-
-
-def train_premium_model() -> tuple[xgb.XGBRegressor, dict[str, float]]:
-    X, y = generate_premium_training_data()
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=SEED)
-
-    model = xgb.XGBRegressor(
-        n_estimators=320,
-        max_depth=5,
-        learning_rate=0.045,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_lambda=1.2,
-        reg_alpha=0.08,
-        min_child_weight=2,
-        random_state=SEED,
-        objective="reg:squarederror",
-    )
-    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-
-    predictions = model.predict(X_val)
-    mae = float(mean_absolute_error(y_val, predictions))
-    rmse = float(np.sqrt(np.mean((y_val - predictions) ** 2)))
-    return model, {"mae": round(mae, 4), "rmse": round(rmse, 4), "samples": float(len(y))}
-
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# FRAUD MODEL (RandomForest + IsolationForest)
+# ═══════════════════════════════════════════════════════════════════════════════
 def build_fraud_features(
-    claimed_rain: np.ndarray,
-    actual_rain: np.ndarray,
-    gps_speed: np.ndarray,
-    user_trust_score: np.ndarray,
-    is_blacklisted_zone: np.ndarray,
-    historical_weather_risk: np.ndarray,
-    historical_claim_frequency: np.ndarray,
-    geographic_risk_rating: np.ndarray,
-    vehicle_type: np.ndarray,
+    claimed_rain, actual_rain, gps_speed, trust, blacklisted,
+    hist_weather, hist_claims, geo_risk, vehicle,
 ) -> np.ndarray:
-    weather_diff = np.abs(claimed_rain - actual_rain)
-    weather_ratio = claimed_rain / np.maximum(actual_rain + 1.0, 1.0)
-    trust_inverse = 1.0 - (user_trust_score / 100.0)
-    suspicious_speed = np.maximum(gps_speed - 55.0, 0.0) / 65.0
-    severe_claim = (claimed_rain >= 25.0).astype(float)
-    dry_oracle = (actual_rain <= 5.0).astype(float)
-    low_trust_blacklisted = ((user_trust_score < 35.0) & (is_blacklisted_zone > 0.5)).astype(float)
-    return np.column_stack(
-        [
-            claimed_rain,
-            actual_rain,
-            weather_diff,
-            weather_ratio,
-            gps_speed,
-            user_trust_score,
-            is_blacklisted_zone,
-            suspicious_speed,
-            severe_claim,
-            dry_oracle,
-            trust_inverse,
-            low_trust_blacklisted,
-            historical_weather_risk,
-            weather_diff * suspicious_speed,
-            weather_diff * trust_inverse,
-            historical_weather_risk * dry_oracle,
-            historical_claim_frequency,
-            geographic_risk_rating,
-            vehicle_type,
-            geographic_risk_rating * historical_claim_frequency
-        ]
-    )
+    wd = np.abs(claimed_rain - actual_rain)
+    wr = claimed_rain / np.maximum(actual_rain + 1.0, 1.0)
+    ti = 1.0 - (trust / 100.0)
+    ss = np.maximum(gps_speed - 55.0, 0.0) / 65.0
+    sc = (claimed_rain >= 25.0).astype(float)
+    do = (actual_rain <= 5.0).astype(float)
+    ltb = ((trust < 35.0) & (blacklisted > 0.5)).astype(float)
+    return np.column_stack([
+        claimed_rain, actual_rain, wd, wr, gps_speed, trust, blacklisted,
+        ss, sc, do, ti, ltb, hist_weather, wd * ss, wd * ti,
+        hist_weather * do, hist_claims, geo_risk, vehicle, geo_risk * hist_claims,
+    ])
 
 
-def generate_fraud_training_data(n_samples: int = 16000) -> tuple[np.ndarray, np.ndarray]:
-    actual_rain = np.clip(RNG.gamma(shape=1.7, scale=7.0, size=n_samples), 0, 70)
-    claimed_bias = RNG.normal(0.0, 6.5, n_samples)
-    claimed_rain = np.clip(actual_rain + claimed_bias, 0, 95)
-    gps_speed = np.clip(RNG.normal(32, 22, n_samples), 0, 140)
-    user_trust_score = np.clip(RNG.normal(70, 18, n_samples), 5, 99)
-    is_blacklisted_zone = RNG.binomial(1, 0.18, n_samples).astype(float)
-    historical_weather_risk = RNG.uniform(0.1, 0.9, n_samples)
-    historical_claim_frequency = RNG.integers(0, 5, n_samples).astype(float)
-    geographic_risk_rating = RNG.uniform(0.1, 0.9, n_samples)
-    vehicle_type = RNG.integers(1, 5, n_samples).astype(float) # 1: Bike, 2: Scooter, 3: Auto, 4: Car
+def generate_fraud_data(n: int = 16000):
+    ar = np.clip(RNG.gamma(1.7, 7.0, n), 0, 70)
+    cr = np.clip(ar + RNG.normal(0, 6.5, n), 0, 95)
+    gs = np.clip(RNG.normal(32, 22, n), 0, 140)
+    ts = np.clip(RNG.normal(70, 18, n), 5, 99)
+    bz = RNG.binomial(1, 0.18, n).astype(float)
+    hw = RNG.uniform(0.1, 0.9, n)
+    hc = RNG.integers(0, 5, n).astype(float)
+    gr = RNG.uniform(0.1, 0.9, n)
+    vt = RNG.integers(1, 5, n).astype(float)
 
-    coordinated_idx = RNG.choice(n_samples, size=n_samples // 6, replace=False)
-    claimed_rain[coordinated_idx] += RNG.uniform(12, 36, size=len(coordinated_idx))
-    gps_speed[coordinated_idx] += RNG.uniform(18, 45, size=len(coordinated_idx))
-    user_trust_score[coordinated_idx] -= RNG.uniform(15, 38, size=len(coordinated_idx))
+    idx = RNG.choice(n, size=n // 6, replace=False)
+    cr[idx] += RNG.uniform(12, 36, len(idx))
+    gs[idx] += RNG.uniform(18, 45, len(idx))
+    ts[idx] -= RNG.uniform(15, 38, len(idx))
+    cr = np.clip(cr, 0, 95); gs = np.clip(gs, 0, 140); ts = np.clip(ts, 5, 99)
 
-    actual_rain = np.clip(actual_rain, 0, 70)
-    claimed_rain = np.clip(claimed_rain, 0, 95)
-    gps_speed = np.clip(gps_speed, 0, 140)
-    user_trust_score = np.clip(user_trust_score, 5, 99)
-
-    weather_diff = np.abs(claimed_rain - actual_rain)
-    suspicious_speed = np.maximum(gps_speed - 60.0, 0.0)
-    trust_penalty = np.maximum(42.0 - user_trust_score, 0.0)
-    rain_overclaim = np.maximum(claimed_rain - actual_rain - 5.0, 0.0)
-
-    fraud_signal = (
-        -4.3
-        + 0.11 * weather_diff
-        + 0.055 * suspicious_speed
-        + 1.35 * is_blacklisted_zone
-        + 0.075 * trust_penalty
-        + 0.095 * rain_overclaim
-        + 0.85 * (1.0 - historical_weather_risk) * rain_overclaim # Low historical risk + overclaim = higher fraud chance
-        + 0.70 * historical_claim_frequency # High past claims = higher fraud risk
-        + 1.25 * geographic_risk_rating * (1.0 - (user_trust_score / 100.0))
-        + 1.15 * ((weather_diff > 18) & (gps_speed > 68))
-        + 1.30 * ((user_trust_score < 30) & (is_blacklisted_zone > 0))
-        + 1.15 * ((claimed_rain > 32) & (actual_rain < 7))
-    )
-    fraud_probability = sigmoid(fraud_signal)
-    fraud_probability = np.clip(fraud_probability + RNG.normal(0.0, 0.035, n_samples), 0.0, 1.0)
-    labels = (fraud_probability > 0.52).astype(int)
-
-    X = build_fraud_features(claimed_rain, actual_rain, gps_speed, user_trust_score, is_blacklisted_zone, historical_weather_risk, historical_claim_frequency, geographic_risk_rating, vehicle_type)
-    return X, labels
+    wd = np.abs(cr - ar)
+    sig = (-4.3 + 0.11 * wd + 0.055 * np.maximum(gs - 60, 0)
+           + 1.35 * bz + 0.075 * np.maximum(42 - ts, 0)
+           + 0.095 * np.maximum(cr - ar - 5, 0)
+           + 0.85 * (1 - hw) * np.maximum(cr - ar - 5, 0)
+           + 0.70 * hc + 1.25 * gr * (1 - ts / 100)
+           + 1.15 * ((wd > 18) & (gs > 68))
+           + 1.30 * ((ts < 30) & (bz > 0))
+           + 1.15 * ((cr > 32) & (ar < 7)))
+    fp = np.clip(sigmoid(sig) + RNG.normal(0, 0.035, n), 0, 1)
+    labels = (fp > 0.52).astype(int)
+    return build_fraud_features(cr, ar, gs, ts, bz, hw, hc, gr, vt), labels
 
 
-def choose_best_threshold(probabilities: np.ndarray, labels: np.ndarray) -> float:
-    precision, recall, thresholds = precision_recall_curve(labels, probabilities)
-    if len(thresholds) == 0:
+def best_threshold(probs, labels):
+    prec, rec, thr = precision_recall_curve(labels, probs)
+    if len(thr) == 0:
         return 0.5
-
-    f1_scores = (2 * precision[:-1] * recall[:-1]) / np.maximum(precision[:-1] + recall[:-1], 1e-9)
-    best_index = int(np.argmax(f1_scores))
-    return float(clamp(thresholds[best_index], 0.35, 0.8))
+    f1 = (2 * prec[:-1] * rec[:-1]) / np.maximum(prec[:-1] + rec[:-1], 1e-9)
+    return float(clamp(thr[int(np.argmax(f1))], 0.35, 0.8))
 
 
-def train_fraud_models() -> tuple[IsolationForest, RandomForestClassifier, float, dict[str, float]]:
-    X, y = generate_fraud_training_data()
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
-
-    fraud_rate = max(float(y_train.mean()), 1e-6)
-    scale_pos_weight = float((1.0 - fraud_rate) / fraud_rate)
-
-    classifier = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=12,
-        min_samples_split=4,
-        min_samples_leaf=2,
-        class_weight={0: 1.0, 1: scale_pos_weight},
-        random_state=SEED,
-        n_jobs=-1
+def train_fraud_models():
+    X, y = generate_fraud_data()
+    Xt, Xv, yt, yv = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
+    fr = max(float(yt.mean()), 1e-6)
+    clf = RandomForestClassifier(
+        n_estimators=300, max_depth=12, min_samples_split=4, min_samples_leaf=2,
+        class_weight={0: 1.0, 1: (1 - fr) / fr}, random_state=SEED, n_jobs=-1,
     )
-    classifier.fit(X_train, y_train)
-
-    anomaly_model = IsolationForest(
-        n_estimators=250,
-        contamination=0.06,
-        random_state=SEED,
-    )
-    anomaly_model.fit(X_train[y_train == 0])
-
-    probabilities = classifier.predict_proba(X_val)[:, 1]
-    threshold = choose_best_threshold(probabilities, y_val)
-    predictions = (probabilities >= threshold).astype(int)
-
+    clf.fit(Xt, yt)
+    iso = IsolationForest(n_estimators=250, contamination=0.06, random_state=SEED)
+    iso.fit(Xt[yt == 0])
+    probs = clf.predict_proba(Xv)[:, 1]
+    thr = best_threshold(probs, yv)
+    preds = (probs >= thr).astype(int)
     metrics = {
-        "auc": round(float(roc_auc_score(y_val, probabilities)), 4),
-        "f1": round(float(f1_score(y_val, predictions)), 4),
-        "precision": round(float(precision_score(y_val, predictions, zero_division=0)), 4),
-        "recall": round(float(recall_score(y_val, predictions, zero_division=0)), 4),
-        "threshold": round(float(threshold), 4),
-        "samples": float(len(y)),
+        "auc": round(float(roc_auc_score(yv, probs)), 4),
+        "f1": round(float(f1_score(yv, preds)), 4),
+        "precision": round(float(precision_score(yv, preds, zero_division=0)), 4),
+        "recall": round(float(recall_score(yv, preds, zero_division=0)), 4),
+        "threshold": round(thr, 4),
         "fraud_rate": round(float(y.mean()), 4),
     }
-    return anomaly_model, classifier, threshold, metrics
+    return iso, clf, thr, metrics
 
 
+# ── Train at startup ──────────────────────────────────────────────────────────
 premium_model, premium_metrics = train_premium_model()
-iso_forest_model, xgb_fraud_model, fraud_threshold, fraud_metrics = train_fraud_models()
+iso_forest, fraud_clf, fraud_thr, fraud_metrics = train_fraud_models()
 
 
-class PredictRequest(BaseModel):
-    zone_risk: float = 0.5
-    seasonal_risk: float = 0.4
-    risk_score: float = 60.0
-    weeks_active: int = 10
-    base_premium: float = 49.0
-
-
-class PredictResponse(BaseModel):
-    multiplier: float
-    final_premium: float
-    risk_score: float
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/health")
 def health():
     return {
-        "status": "ok",
-        "service": "gigshield-ai",
-        "models": {
-            "premium_model": "XGBoostRegressor",
-            "fraud_model": "RandomForestClassifier + IsolationForest",
-        },
+        "status": "ok", "service": "gigshield-ai", "version": "2.0.0",
+        "models": {"premium": "XGBoostRegressor", "fraud": "RF+IsolationForest"},
         "premium_metrics": premium_metrics,
         "fraud_metrics": fraud_metrics,
     }
 
 
-@app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
+# ── Premium Prediction ────────────────────────────────────────────────────────
+class PremiumRequest(BaseModel):
+    zone_risk: float = 0.5
+    seasonal_risk: float = 0.4
+    risk_score: float = 60.0
+    weeks_active: int = 10
+    base_premium: float = 49.0
+    city: str = "mumbai"
+    profession: str = "delivery_rider"
+    season_override: float | None = None
+
+class PremiumResponse(BaseModel):
+    multiplier: float
+    final_premium: float
+    risk_score: float
+    season_factor: float
+    city_risk: float
+    profession_risk: float
+
+
+@app.post("/predict-premium", response_model=PremiumResponse)
+@app.post("/predict", response_model=PremiumResponse)
+def predict_premium(req: PremiumRequest):
+    city_r = CITY_RISK.get(req.city.lower().strip(), 0.50)
+    prof_r = PROFESSION_RISK.get(req.profession.lower().strip(), 0.50)
+    season = req.season_override if req.season_override is not None else SEASON_INDEX.get(datetime.now().month, 0.5)
+
+    effective_zone = clamp(req.zone_risk * 0.5 + city_r * 0.3 + prof_r * 0.2, 0.05, 0.98)
+    effective_season = clamp(req.seasonal_risk * 0.6 + season * 0.4, 0.05, 0.95)
+
     features = build_premium_features(
-        np.array([req.zone_risk], dtype=float),
-        np.array([req.seasonal_risk], dtype=float),
-        np.array([req.risk_score], dtype=float),
-        np.array([req.weeks_active], dtype=float),
-        np.array([req.base_premium], dtype=float),
+        np.array([effective_zone]), np.array([effective_season]),
+        np.array([req.risk_score]), np.array([req.weeks_active], dtype=float),
+        np.array([req.base_premium]),
     )
-    multiplier = float(premium_model.predict(features)[0])
-    multiplier = round(clamp(multiplier, 1.0, 2.5), 2)
-    final_premium = round(req.base_premium * multiplier)
-
-    risk = (
-        req.zone_risk * 35
-        + req.seasonal_risk * 30
-        + (req.risk_score / 100.0) * 25
-        + (1.0 / max(req.weeks_active, 1)) * 10
-    )
-    risk = round(clamp(risk, 0.0, 100.0), 1)
-
-    return PredictResponse(
-        multiplier=multiplier,
-        final_premium=final_premium,
-        risk_score=risk,
+    mult = round(clamp(float(premium_model.predict(features)[0]), 1.0, 2.5), 2)
+    risk = round(clamp(
+        effective_zone * 35 + effective_season * 30 + (req.risk_score / 100) * 25
+        + (1 / max(req.weeks_active, 1)) * 10, 0, 100
+    ), 1)
+    return PremiumResponse(
+        multiplier=mult, final_premium=round(req.base_premium * mult),
+        risk_score=risk, season_factor=round(season, 3),
+        city_risk=city_r, profession_risk=prof_r,
     )
 
 
-class PredictFraudRequest(BaseModel):
+# ── Fraud Prediction ──────────────────────────────────────────────────────────
+class FraudRequest(BaseModel):
     claimed_rain: float
     actual_rain: float
     gps_speed: float
     user_trust_score: float
-    is_blacklisted_zone: int
+    is_blacklisted_zone: int = 0
     location: str = "Mumbai"
     historical_weather_risk: float = 0.5
     historical_claim_frequency: int = 0
     geographic_risk_rating: float = 0.5
     vehicle_type: int = 1
+    device_fingerprint_hash: str | None = None
+    rapid_claim_count_24h: int = 0
+    payout_account_age_days: int = 90
 
-
-class PredictFraudResponse(BaseModel):
+class FraudResponse(BaseModel):
     is_fraud: bool
     fraud_probability: float
     is_anomaly: bool
     status: str
     reason: str
+    classification: str  # AUTO_APPROVE, REVIEW, HOLD
 
 
-@app.post("/api/ml/predict-fraud", response_model=PredictFraudResponse)
-def predict_fraud(req: PredictFraudRequest):
+@app.post("/predict-fraud", response_model=FraudResponse)
+@app.post("/api/ml/predict-fraud", response_model=FraudResponse)
+def predict_fraud(req: FraudRequest):
     features = build_fraud_features(
-        np.array([req.claimed_rain], dtype=float),
-        np.array([req.actual_rain], dtype=float),
-        np.array([req.gps_speed], dtype=float),
-        np.array([req.user_trust_score], dtype=float),
-        np.array([float(req.is_blacklisted_zone)], dtype=float),
-        np.array([req.historical_weather_risk], dtype=float),
-        np.array([float(req.historical_claim_frequency)], dtype=float),
-        np.array([req.geographic_risk_rating], dtype=float),
-        np.array([float(req.vehicle_type)], dtype=float),
+        np.array([req.claimed_rain]), np.array([req.actual_rain]),
+        np.array([req.gps_speed]), np.array([req.user_trust_score]),
+        np.array([float(req.is_blacklisted_zone)]),
+        np.array([req.historical_weather_risk]),
+        np.array([float(req.historical_claim_frequency)]),
+        np.array([req.geographic_risk_rating]),
+        np.array([float(req.vehicle_type)]),
     )
-    weather_diff = abs(req.claimed_rain - req.actual_rain)
 
-    anomaly_prediction = iso_forest_model.predict(features)[0]
-    is_anomaly = bool(anomaly_prediction == -1)
+    is_anomaly = bool(iso_forest.predict(features)[0] == -1)
+    clf_prob = float(fraud_clf.predict_proba(features)[0][1])
+    boost = 0.10 if is_anomaly else 0.0
 
-    classifier_probability = float(xgb_fraud_model.predict_proba(features)[0][1])
-    anomaly_boost = 0.10 if is_anomaly else 0.0
-    fraud_probability = clamp(classifier_probability + anomaly_boost, 0.0, 0.999)
-    is_fraud = fraud_probability >= fraud_threshold or (is_anomaly and classifier_probability >= fraud_threshold - 0.06)
+    # V2 fraud signals
+    if req.rapid_claim_count_24h >= 3:
+        boost += 0.15
+    if req.payout_account_age_days < 7:
+        boost += 0.10
+
+    fraud_prob = clamp(clf_prob + boost, 0.0, 0.999)
+    is_fraud = fraud_prob >= fraud_thr or (is_anomaly and clf_prob >= fraud_thr - 0.06)
+
+    # 3-tier classification
+    if fraud_prob < 0.4:
+        classification = "AUTO_APPROVE"
+    elif fraud_prob < 0.7:
+        classification = "REVIEW"
+    else:
+        classification = "HOLD"
 
     reasons: list[str] = []
+    wd = abs(req.claimed_rain - req.actual_rain)
     if is_fraud:
         status = "REJECTED"
-        if weather_diff > 18:
-            reasons.append(f"High weather discrepancy ({req.claimed_rain}mm claimed vs {req.actual_rain}mm actual).")
+        if wd > 18:
+            reasons.append(f"Weather discrepancy: {req.claimed_rain}mm claimed vs {req.actual_rain}mm actual.")
         if req.gps_speed > 65:
-            reasons.append(f"Impossible GPS movement detected ({req.gps_speed} km/h). Potential spoofing.")
+            reasons.append(f"GPS anomaly: {req.gps_speed} km/h movement detected.")
         if req.user_trust_score < 30:
-            reasons.append("Claim flagged due to critically low user trust score.")
+            reasons.append("Critically low trust score.")
         if req.is_blacklisted_zone:
-            reasons.append("Claim originated from a previously flagged risk zone.")
+            reasons.append("Flagged risk zone.")
         if is_anomaly:
-            reasons.append("Submission pattern is an outlier compared to trained claim behaviour.")
+            reasons.append("Behavioral outlier detected.")
+        if req.rapid_claim_count_24h >= 3:
+            reasons.append(f"Rapid repeat claims: {req.rapid_claim_count_24h} in 24h.")
+        if req.payout_account_age_days < 7:
+            reasons.append("New payout account (<7 days).")
         if not reasons:
-            reasons.append("Claim flagged by the upgraded fraud ensemble.")
+            reasons.append("Flagged by ensemble model.")
     else:
         status = "APPROVED"
-        reasons.append("Claim verified successfully. Validation checks are within trained thresholds.")
+        reasons.append("Claim verified. All checks within thresholds.")
 
-    return PredictFraudResponse(
-        is_fraud=is_fraud,
-        fraud_probability=round(fraud_probability, 3),
-        is_anomaly=is_anomaly,
-        status=status,
-        reason=" ".join(reasons),
+    return FraudResponse(
+        is_fraud=is_fraud, fraud_probability=round(fraud_prob, 3),
+        is_anomaly=is_anomaly, status=status,
+        reason=" ".join(reasons), classification=classification,
+    )
+
+
+# ── Risk Score Prediction ─────────────────────────────────────────────────────
+class RiskRequest(BaseModel):
+    city: str = "mumbai"
+    profession: str = "delivery_rider"
+    claims_history_count: int = 0
+    device_trust: float = 80.0
+    payment_consistency: float = 90.0
+    pincode: str | None = None
+
+class RiskResponse(BaseModel):
+    risk_score: int
+    tier: str
+    factors: dict
+    daily_income_baseline: float
+    recommended_plan: str
+    recommended_premium: float
+
+
+@app.post("/predict-risk", response_model=RiskResponse)
+def predict_risk(req: RiskRequest):
+    city_r = CITY_RISK.get(req.city.lower().strip(), 0.50)
+    prof_r = PROFESSION_RISK.get(req.profession.lower().strip(), 0.50)
+    income = PROFESSION_INCOME.get(req.profession.lower().strip(), 800)
+    season = SEASON_INDEX.get(datetime.now().month, 0.5)
+
+    claims_penalty = min(req.claims_history_count * 8, 30)
+    device_factor = (100 - req.device_trust) * 0.15
+    payment_factor = (100 - req.payment_consistency) * 0.10
+
+    raw = (city_r * 30 + prof_r * 25 + season * 15
+           + claims_penalty + device_factor + payment_factor)
+    score = int(clamp(raw, 5, 98))
+
+    tier = "low" if score <= 40 else "medium" if score <= 70 else "high"
+    plan = "Basic" if tier == "low" else "Standard" if tier == "medium" else "Premium"
+    premiums = {"Basic": 49, "Standard": 89, "Premium": 149}
+
+    return RiskResponse(
+        risk_score=score, tier=tier,
+        factors={
+            "city_risk": round(city_r, 2), "profession_risk": round(prof_r, 2),
+            "season": round(season, 2), "claims_penalty": claims_penalty,
+            "device_trust": round(device_factor, 2),
+            "payment_consistency": round(payment_factor, 2),
+        },
+        daily_income_baseline=income,
+        recommended_plan=plan,
+        recommended_premium=premiums[plan],
     )

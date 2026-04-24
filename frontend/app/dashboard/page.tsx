@@ -285,7 +285,11 @@ export default function DashboardPage() {
           userLocation: fraudDemo.userLocation,
           actualLocation: fraudDemo.actualLocation,
           activity: fraudDemo.activity,
-          demoMode: true
+          demoMode: true,
+          city: user?.city || "Mumbai",
+          profession: user?.profession || "delivery_rider",
+          enrolledAt: user?.enrolledAt || new Date().toISOString(),
+          plan: user?.plan || "Standard",
         }),
       });
 
@@ -505,22 +509,24 @@ export default function DashboardPage() {
 
           {/* Cooling-off Badge (Fix 3) */}
           {coolingOff.active && (
-            <div className="inline-flex items-center gap-3 bg-[#F97316]/10 border border-[#F97316]/20 rounded-lg px-4 py-3 shadow-[0_0_15px_rgba(249,115,22,0.1)]">
-              <div className="w-8 h-8 rounded-full bg-[#F97316]/20 flex items-center justify-center text-lg shadow-inner">⏳</div>
+            <div className="inline-flex items-center gap-4 bg-[#F97316]/10 border border-[#F97316]/20 rounded-xl px-5 py-4 shadow-[0_0_20px_rgba(249,115,22,0.15)] backdrop-blur-md relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#F97316] to-transparent" />
+              <div className="w-10 h-10 rounded-full bg-[#F97316]/20 flex items-center justify-center text-xl shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)]">⏳</div>
               <div>
-                <div className="text-xs text-white/50 uppercase tracking-widest font-semibold">Cooling-Off Period Active</div>
-                <div className="text-sm font-bold text-[#F97316]">{coolingOff.hoursLeft}h remaining — claims restricted</div>
+                <div className="text-xs text-[#F97316]/80 uppercase tracking-widest font-bold mb-0.5">Cooling-Off Period Active</div>
+                <div className="text-sm font-medium text-white">{coolingOff.hoursLeft}h remaining <span className="text-white/40">— claims restricted</span></div>
               </div>
             </div>
           )}
 
-          <div className="inline-flex items-center gap-3 bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-lg px-4 py-3 shadow-[0_0_15px_rgba(34,197,94,0.1)]">
-             <div className="w-8 h-8 rounded-full bg-[#22C55E]/20 flex items-center justify-center text-lg shadow-inner">
+          <div className="inline-flex items-center gap-4 bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-xl px-5 py-4 shadow-[0_0_20px_rgba(34,197,94,0.15)] backdrop-blur-md relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#22C55E] to-transparent" />
+             <div className="w-10 h-10 rounded-full bg-[#22C55E]/20 flex items-center justify-center text-xl shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)]">
                💰
              </div>
              <div>
-               <div className="text-xs text-white/50 uppercase tracking-widest font-semibold">Value Protected This Month</div>
-               <div className="text-xl font-bold text-[#22C55E]">₹1,400</div>
+               <div className="text-xs text-[#22C55E]/80 uppercase tracking-widest font-bold mb-0.5">Value Protected This Month</div>
+               <div className="text-2xl font-bold text-white font-mono">₹1,400</div>
              </div>
           </div>
         </section>
@@ -547,17 +553,18 @@ export default function DashboardPage() {
             </div>
 
             {}
-            <div className="glass-card col-span-2 bg-gradient-to-r from-white/5 to-[#8B5CF6]/10 border-[#8B5CF6]/20">
-              <div className="flex items-start justify-between mb-4">
+            <div className="glass-card col-span-2 bg-gradient-to-br from-white/[0.03] to-brand-purple/[0.05] border-brand-purple/20 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-brand-purple/10 blur-[80px] rounded-full pointer-events-none" />
+              <div className="flex items-start justify-between mb-6 relative z-10">
                 <div>
-                  <span className="text-xs text-white/40 uppercase tracking-widest font-semibold block mb-1">Dynamic Premium</span>
-                  <div className="text-xl font-semibold text-white font-mono">
+                  <span className="text-xs text-brand-purple uppercase tracking-[0.2em] font-bold block mb-2">Dynamic Premium</span>
+                  <div className="text-3xl font-bold text-white font-mono flex items-baseline gap-1">
                     ₹{dpaEffective.toFixed(0)}
-                    <span className="text-sm text-white/40 font-normal ml-1">/ weekly</span>
+                    <span className="text-sm text-white/40 font-sans font-medium">/ weekly</span>
                   </div>
                 </div>
                 <div
-                  className="text-xs font-semibold px-3 py-1.5 rounded-full border"
+                  className="text-[10px] font-bold px-3 py-1.5 rounded-full border tracking-widest uppercase shadow-sm"
                   style={{
                     color: flexColor(dpaFlex.label),
                     background: `${flexColor(dpaFlex.label)}15`,
@@ -759,27 +766,31 @@ export default function DashboardPage() {
                     <div className="space-y-5">
                       {/* Main weather stats */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-black/20 rounded-xl p-4 border border-white/5 text-center">
-                          <div className="text-2xl mb-1">🌧️</div>
-                          <div className="text-2xl font-bold text-white font-mono">{weatherResult.weather.rain}<span className="text-sm text-white/40">mm</span></div>
-                          <div className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Rainfall</div>
+                        <div className="bg-black/30 rounded-2xl p-5 border border-white/5 text-center shadow-inner relative overflow-hidden group">
+                          <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="text-3xl mb-2 drop-shadow-md">🌧️</div>
+                          <div className="text-3xl font-bold text-white font-mono tracking-tight">{weatherResult.weather.rain}<span className="text-sm text-white/40">mm</span></div>
+                          <div className="text-[10px] text-blue-400/80 font-bold uppercase tracking-[0.2em] mt-2">Rainfall</div>
                         </div>
-                        <div className="bg-black/20 rounded-xl p-4 border border-white/5 text-center">
-                          <div className="text-2xl mb-1">🌡️</div>
-                          <div className="text-2xl font-bold text-white font-mono">{weatherResult.weather.temp}<span className="text-sm text-white/40">°C</span></div>
-                          <div className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Temperature</div>
+                        <div className="bg-black/30 rounded-2xl p-5 border border-white/5 text-center shadow-inner relative overflow-hidden group">
+                          <div className="absolute inset-0 bg-orange-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="text-3xl mb-2 drop-shadow-md">🌡️</div>
+                          <div className="text-3xl font-bold text-white font-mono tracking-tight">{weatherResult.weather.temp}<span className="text-sm text-white/40">°C</span></div>
+                          <div className="text-[10px] text-orange-400/80 font-bold uppercase tracking-[0.2em] mt-2">Temperature</div>
                         </div>
-                        <div className="bg-black/20 rounded-xl p-4 border border-white/5 text-center">
-                          <div className="text-2xl mb-1">💧</div>
-                          <div className="text-2xl font-bold text-white font-mono">{weatherResult.weather.humidity}<span className="text-sm text-white/40">%</span></div>
-                          <div className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Humidity</div>
+                        <div className="bg-black/30 rounded-2xl p-5 border border-white/5 text-center shadow-inner relative overflow-hidden group">
+                          <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <div className="text-3xl mb-2 drop-shadow-md">💧</div>
+                          <div className="text-3xl font-bold text-white font-mono tracking-tight">{weatherResult.weather.humidity}<span className="text-sm text-white/40">%</span></div>
+                          <div className="text-[10px] text-cyan-400/80 font-bold uppercase tracking-[0.2em] mt-2">Humidity</div>
                         </div>
-                        <div className="bg-black/20 rounded-xl p-4 border border-white/5 text-center">
-                          <div className="text-2xl mb-1">📊</div>
-                          <div className="text-2xl font-bold font-mono" style={{ color: riskColor(weatherResult.riskLevel) }}>
+                        <div className="bg-black/30 rounded-2xl p-5 border border-white/5 text-center shadow-inner relative overflow-hidden group">
+                          <div className="absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity" style={{ backgroundColor: riskColor(weatherResult.riskLevel) }} />
+                          <div className="text-3xl mb-2 drop-shadow-md">📊</div>
+                          <div className="text-3xl font-bold font-mono tracking-tight" style={{ color: riskColor(weatherResult.riskLevel) }}>
                             {weatherResult.riskScore}
                           </div>
-                          <div className="text-[10px] uppercase tracking-widest mt-1" style={{ color: riskColor(weatherResult.riskLevel) }}>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.2em] mt-2" style={{ color: riskColor(weatherResult.riskLevel) }}>
                             {weatherResult.riskLevel}
                           </div>
                         </div>

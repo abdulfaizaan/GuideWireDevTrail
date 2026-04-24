@@ -299,16 +299,18 @@ export default function AdminDashboard() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
-              className="glass-card"
+              className="glass-card relative overflow-hidden group"
             >
-              <div className="text-sm text-white/50 mb-2">{stat.label}</div>
-              <div className="text-3xl font-bold flex items-end justify-between">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/[0.05] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="text-xs font-bold text-white/40 mb-3 uppercase tracking-widest">{stat.label}</div>
+              <div className="text-4xl font-bold font-mono tracking-tight text-white flex items-baseline justify-between relative z-10 drop-shadow-md">
                 {stat.value}
-                <span className={`text-sm mb-1 ${stat.trend === "up" && stat.label !== "Loss Ratio (MTD)"
-                    ? "text-[#22C55E]"
+                <span className={`text-sm font-sans font-semibold px-2 py-1 rounded-md ${
+                  stat.trend === "up" && stat.label !== "Loss Ratio (MTD)"
+                    ? "bg-[#22C55E]/10 text-[#22C55E]"
                     : stat.label === "Loss Ratio (MTD)" && stat.trend === "down"
-                      ? "text-[#22C55E]"
-                      : "text-[#EF4444]"
+                      ? "bg-[#22C55E]/10 text-[#22C55E]"
+                      : "bg-[#EF4444]/10 text-[#EF4444]"
                   }`}>
                   {stat.change}
                 </span>

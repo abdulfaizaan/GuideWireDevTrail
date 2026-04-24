@@ -22,6 +22,8 @@ export default function RegisterPage() {
     platform: "Swiggy",
     partnerId: "",
     pincode: "",
+    city: "Mumbai",
+    profession: "delivery_rider",
     dailyEarnings: 500,
     riskScore: 0,
     suggestedPlan: "",
@@ -85,51 +87,61 @@ export default function RegisterPage() {
   const getRiskScore = async () => {
     setLoading(true);
     const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const ML_URL = process.env.NEXT_PUBLIC_AI_SERVICE_URL || "http://localhost:8000";
 
-    let zone = 50;
-    let weather = 40;
-    let aqi = 30;
+    let zone = 50, weather = 40, aqi = 30;
     const platformRisk = data.platform === "Swiggy" ? 45 : 50;
     const activity = 75;
 
+    // ML-based risk scoring
     try {
-      // Fetch real weather data for the user's pincode (Fix 7)
+      const mlRes = await fetch(`${ML_URL}/predict-risk`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          city: data.city || "mumbai",
+          profession: data.profession || "delivery_rider",
+          claims_history_count: 0,
+          device_trust: 80,
+          payment_consistency: 90,
+        }),
+      });
+      if (mlRes.ok) {
+        const mlData = await mlRes.json();
+        const score = mlData.risk_score || 50;
+        zone = Math.round(mlData.factors?.city_risk * 100 || 50);
+        weather = Math.round(mlData.factors?.season * 100 || 40);
+        setCalcFactors({ zone, weather, aqi, platform: platformRisk, activity });
+        setData((d) => ({
+          ...d, riskScore: score,
+          suggestedPlan: mlData.recommended_plan || (score > 65 ? "Premium" : score > 45 ? "Standard" : "Basic"),
+        }));
+        setLoading(false);
+        return;
+      }
+    } catch { /* fallback to weather-based */ }
+
+    // Fallback: weather + AQI based scoring
+    try {
       const pincodeParam = data.pincode ? `&pincode=${data.pincode}` : "";
-      const weatherRes = await fetch(`${API_URL}/api/triggers/weather?city=Mumbai${pincodeParam}`);
+      const weatherRes = await fetch(`${API_URL}/api/triggers/weather?city=${data.city || "Mumbai"}${pincodeParam}`);
       if (weatherRes.ok) {
-        const weatherData = await weatherRes.json();
-        // Convert weather data to risk scores
-        const w = weatherData.weather;
-        zone = Math.min(100, Math.round(
-          (w.rain > 20 ? 80 : w.rain > 10 ? 60 : 40) * 0.5 +
-          (w.temp > 40 ? 80 : w.temp > 35 ? 60 : 40) * 0.3 +
-          (w.humidity > 85 ? 70 : 40) * 0.2
-        ));
-        weather = Math.min(100, weatherData.riskScore || 40);
+        const wd = await weatherRes.json();
+        const w = wd.weather;
+        zone = Math.min(100, Math.round((w.rain > 20 ? 80 : w.rain > 10 ? 60 : 40) * 0.5 + (w.temp > 40 ? 80 : w.temp > 35 ? 60 : 40) * 0.3 + (w.humidity > 85 ? 70 : 40) * 0.2));
+        weather = Math.min(100, wd.riskScore || 40);
       }
-    } catch { /* keep defaults */ }
-
+    } catch {}
     try {
-      // Fetch real AQI data (Fix 7)
-      const aqiRes = await fetch(`${API_URL}/api/triggers/aqi?city=Mumbai`);
-      if (aqiRes.ok) {
-        const aqiData = await aqiRes.json();
-        aqi = Math.min(100, Math.round((aqiData.aqi / 400) * 100));
-      }
-    } catch { /* keep defaults */ }
+      const aqiRes = await fetch(`${API_URL}/api/triggers/aqi?city=${data.city || "Mumbai"}`);
+      if (aqiRes.ok) { const ad = await aqiRes.json(); aqi = Math.min(100, Math.round((ad.aqi / 400) * 100)); }
+    } catch {}
 
-    const calculatedScore = Math.floor(
-      zone * 0.3 + weather * 0.25 + aqi * 0.15 + platformRisk * 0.2 + activity * 0.1
-    );
-
+    const calculatedScore = Math.floor(zone * 0.3 + weather * 0.25 + aqi * 0.15 + platformRisk * 0.2 + activity * 0.1);
     setCalcFactors({ zone, weather, aqi, platform: platformRisk, activity });
-
     setData((d) => ({
-      ...d,
-      riskScore: calculatedScore,
+      ...d, riskScore: calculatedScore,
       suggestedPlan: calculatedScore > 65 ? "Premium" : calculatedScore > 45 ? "Standard" : "Basic",
     }));
-
     setLoading(false);
   };
 
@@ -207,6 +219,21 @@ export default function RegisterPage() {
           const verifyData = await verifyRes.json();
 
           if (verifyData.success) {
+            // Register user on server
+            try {
+              await fetch(`${API_URL}/api/register`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  phone: data.phone, aadhaar: data.aadhaar,
+                  platform: data.platform, partnerId: data.partnerId,
+                  pincode: data.pincode, city: data.city,
+                  profession: data.profession,
+                  dailyEarnings: data.dailyEarnings,
+                  plan: data.suggestedPlan || "Standard",
+                }),
+              });
+            } catch { /* server registration failed, continue with local */ }
+
             if (typeof window !== "undefined") {
               localStorage.setItem(
                 "gigshield_user",
@@ -451,6 +478,26 @@ export default function RegisterPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-white/70 mb-3 block">
+                      Profession
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
+                      {["delivery_rider", "cab_driver", "auto_driver", "freelancer", "street_vendor", "construction", "other"].map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setData((d) => ({ ...d, profession: p }))}
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold transition-all ${
+                            data.profession === p
+                              ? "bg-[#6366F1]/20 border-[#6366F1]/50 text-white shadow-inner"
+                              : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          {p.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-white/70 mb-3 block">
                       Gig Worker ID
                     </label>
                     <input
@@ -507,6 +554,20 @@ export default function RegisterPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-white/70 mb-3 block">
+                      City
+                    </label>
+                    <select
+                      value={data.city}
+                      onChange={(e) => setData((d) => ({ ...d, city: e.target.value }))}
+                      className="glass-input w-full p-4 rounded-xl border border-white/10 bg-black/40 text-white mb-4"
+                    >
+                      {["Mumbai", "Delhi", "Bangalore", "Chennai", "Kolkata", "Hyderabad", "Pune", "Jaipur", "Lucknow", "Chandigarh"].map(c => (
+                        <option key={c} value={c} className="bg-gray-900">{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-white/70 mb-3 block">
                       Primary Operation Zone (Pincode)
                     </label>
                     <div className="flex gap-4">
@@ -556,24 +617,46 @@ export default function RegisterPage() {
               {step === 5 && (
                 <div className="space-y-8">
                   {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12 space-y-6">
-                      <div className="w-10 h-10 border-[3px] border-white/10 border-t-[#8B5CF6] border-r-[#6366F1] rounded-full animate-spin" />
-                      <div className="text-center">
-                        <div className="text-base font-semibold text-white mb-2">Executing XGBoost Pipeline</div>
-                        <div className="text-xs text-white/40 tracking-wider uppercase">Parametric Inference Ongoing</div>
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="flex flex-col items-center justify-center py-16 space-y-8"
+                    >
+                      <div className="relative w-20 h-20">
+                        <div className="absolute inset-0 rounded-full border-2 border-white/5" />
+                        <div className="absolute inset-0 rounded-full border-2 border-brand-purple border-t-transparent animate-spin" />
+                        <div className="absolute inset-2 rounded-full border-2 border-brand-blue border-b-transparent animate-[spin_1.5s_linear_infinite_reverse]" />
+                        <div className="absolute inset-0 bg-brand-purple/20 blur-xl rounded-full animate-pulse" />
                       </div>
-                    </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-brand-purple to-brand-blue mb-2 drop-shadow-md">
+                          Executing ML Pipeline
+                        </div>
+                        <div className="text-xs text-white/40 tracking-[0.2em] uppercase font-mono">
+                          Scanning Risk Parameters...
+                        </div>
+                      </div>
+                    </motion.div>
                   ) : (
                     <>
-                      <div className="flex flex-col items-center justify-center p-6 bg-black/20 rounded-2xl border border-white/5">
-                        <div className="text-sm text-[#8B5CF6] font-bold uppercase tracking-widest mb-4">Risk Confidence Score</div>
+                      <motion.div 
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex flex-col items-center justify-center p-8 bg-white/[0.02] rounded-3xl border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-[1px] bg-gradient-to-r from-transparent via-brand-purple/50 to-transparent" />
+                        
+                        <div className="text-xs text-brand-purple font-bold uppercase tracking-[0.2em] mb-6">Risk Confidence Score</div>
                         <div className="relative inline-block">
-                          <svg className="w-32 h-32 -rotate-90" viewBox="0 0 100 100">
+                          <div className="absolute inset-0 bg-brand-purple/10 blur-2xl rounded-full" />
+                          <svg className="w-36 h-36 -rotate-90 relative z-10" viewBox="0 0 100 100">
                             <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="6" />
-                            <circle
+                            <motion.circle
+                              initial={{ strokeDasharray: "0 264" }}
+                              animate={{ strokeDasharray: `${(data.riskScore || 65) * 2.64} 264` }}
+                              transition={{ duration: 1.5, ease: "easeOut" }}
                               cx="50" cy="50" r="42" fill="none"
                               stroke="url(#purpleGrad)" strokeWidth="6" strokeLinecap="round"
-                              strokeDasharray={`${(data.riskScore || 65) * 2.64} 264`}
                             />
                             <defs>
                               <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -582,36 +665,36 @@ export default function RegisterPage() {
                               </linearGradient>
                             </defs>
                           </svg>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
-                            <span className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
+                          <div className="absolute inset-0 flex flex-col items-center justify-center pt-1 z-10">
+                            <span className="text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-white/70 drop-shadow-md">
                               {data.riskScore || 65}
                             </span>
                           </div>
                         </div>
 
-                        <div className="w-full mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-y-3 text-xs">
-                          <div className="flex justify-between items-center pr-2">
-                            <span className="text-white/50">Zone (30%)</span>
-                            <span className="text-white font-mono">{calcFactors.zone}</span>
+                        <div className="w-full mt-8 pt-6 border-t border-white/10 grid grid-cols-2 gap-y-4 text-xs font-mono">
+                          <div className="flex justify-between items-center pr-4">
+                            <span className="text-white/40">ZONE(30%)</span>
+                            <span className="text-white font-medium">{calcFactors.zone}</span>
                           </div>
-                          <div className="flex justify-between items-center pl-2 border-l border-white/10">
-                            <span className="text-white/50">Weather (25%)</span>
-                            <span className="text-white font-mono">{calcFactors.weather}</span>
+                          <div className="flex justify-between items-center pl-4 border-l border-white/10">
+                            <span className="text-white/40">WX(25%)</span>
+                            <span className="text-white font-medium">{calcFactors.weather}</span>
                           </div>
-                          <div className="flex justify-between items-center pr-2">
-                            <span className="text-white/50">AQI (15%)</span>
-                            <span className="text-white font-mono">{calcFactors.aqi}</span>
+                          <div className="flex justify-between items-center pr-4">
+                            <span className="text-white/40">AQI(15%)</span>
+                            <span className="text-white font-medium">{calcFactors.aqi}</span>
                           </div>
-                          <div className="flex justify-between items-center pl-2 border-l border-white/10">
-                            <span className="text-white/50">Platform (20%)</span>
-                            <span className="text-white font-mono">{calcFactors.platform}</span>
+                          <div className="flex justify-between items-center pl-4 border-l border-white/10">
+                            <span className="text-white/40">PTFM(20%)</span>
+                            <span className="text-white font-medium">{calcFactors.platform}</span>
                           </div>
-                          <div className="col-span-2 flex justify-center items-center mt-1">
-                            <span className="text-white/50 mr-2">Activity (10%)</span>
-                            <span className="text-white font-mono">{calcFactors.activity}</span>
+                          <div className="col-span-2 flex justify-center items-center mt-2 pt-2 border-t border-white/5">
+                            <span className="text-white/40 mr-2">ACTV(10%)</span>
+                            <span className="text-white font-medium">{calcFactors.activity}</span>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
 
                       <div className="w-full">
                         <div className="text-xs text-white/50 font-semibold uppercase tracking-widest mb-4 text-center">
