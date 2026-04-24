@@ -174,18 +174,19 @@ export function evaluateWeatherTrigger(weather: WeatherData, dailyEarnings?: num
 export async function evaluateAllTriggers(
   weather: WeatherData,
   city: string = "Mumbai",
-  dailyEarnings?: number
+  dailyEarnings?: number,
+  pincode?: string
 ): Promise<TriggerResult> {
   // Start with weather evaluation
   const base = evaluateWeatherTrigger(weather, dailyEarnings);
 
   // Fetch AQI data
-  const aqiData = await getAQIData(city);
+  const aqiData = await getAQIData(city, pincode);
   const aqiResult = evaluateAQITrigger(aqiData);
 
   // Evaluate disruptions
-  const outageResult = evaluateOutageTrigger(weather);
-  const bandhResult = evaluateBandhTrigger(city);
+  const outageResult = evaluateOutageTrigger(weather, city, pincode);
+  const bandhResult = evaluateBandhTrigger(city, pincode);
 
   // Add AQI to breakdown
   base.breakdown.push({

@@ -17,6 +17,8 @@ export interface AQIData {
   fetchedAt: string;
 }
 
+import { getPincodeLocation } from "./pincodeService";
+
 export interface AQITriggerResult {
   triggered: boolean;
   aqi: number;
@@ -79,16 +81,23 @@ function getSimulatedAQI(city: string): AQIData {
 // ---------------------------------------------------------------------------
 // Live AQI fetcher
 // ---------------------------------------------------------------------------
-export async function getAQIData(city: string = "mumbai"): Promise<AQIData> {
-  const slug = AQI_CITY_MAP[city.toLowerCase().trim()] || city.toLowerCase().trim();
+export async function getAQIData(city: string = "mumbai", pincode?: string): Promise<AQIData> {
+  let fetchUrl = "";
+  let resolvedCityName = city;
+
+  if (pincode) {
+    const loc = getPincodeLocation(pincode);
+    resolvedCityName = loc.city;
+    fetchUrl = `https://api.waqi.info/feed/geo:${loc.lat};${loc.lon}/?token=${WAQI_TOKEN}`;
+  } else {
+    const slug = AQI_CITY_MAP[city.toLowerCase().trim()] || city.toLowerCase().trim();
+    fetchUrl = `https://api.waqi.info/feed/${encodeURIComponent(slug)}/?token=${WAQI_TOKEN}`;
+  }
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(
-      `https://api.waqi.info/feed/${encodeURIComponent(slug)}/?token=${WAQI_TOKEN}`,
-      { signal: controller.signal }
-    );
+    const res = await fetch(fetchUrl, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!res.ok) {
@@ -99,21 +108,21 @@ export async function getAQIData(city: string = "mumbai"): Promise<AQIData> {
     const json: any = await res.json();
     if (json.status !== "ok" || !json.data) {
       console.log("[AQI] Unexpected response structure — using fallback");
-      return getSimulatedAQI(city);
+      return getSimulatedAQI(resolvedCityName);
     }
 
     const d = json.data;
     return {
       aqi: typeof d.aqi === "number" ? d.aqi : 50,
       dominant: d.dominentpol || "pm25",
-      station: d.city?.name || `${city} Monitor`,
-      city,
+      station: d.city?.name || `${resolvedCityName} Monitor`,
+      city: resolvedCityName,
       isLive: true,
       fetchedAt: new Date().toISOString(),
     };
   } catch (err: any) {
     console.log(`[AQI] Fetch failed (${err.message}) — using simulated data`);
-    return getSimulatedAQI(city);
+    return getSimulatedAQI(resolvedCityName);
   }
 }
 

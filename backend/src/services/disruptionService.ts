@@ -11,6 +11,8 @@
  */
 
 import type { WeatherData } from "./weatherService";
+import { getDisruptionsByRegion } from "./municipalService";
+import { getPincodeLocation } from "./pincodeService";
 
 export interface DisruptionResult {
   active: boolean;
@@ -30,47 +32,50 @@ export interface DisruptionResult {
 
 const OUTAGE_BASE_PAYOUT = 550;
 
-export function evaluateOutageTrigger(weather: WeatherData): DisruptionResult {
+export function evaluateOutageTrigger(weather: WeatherData, city: string = "mumbai", pincode?: string): DisruptionResult {
+  const region = pincode ? getPincodeLocation(pincode).locality : city;
+  
+  // Check exact locality first, then fallback to city
+  let activeOutages = getDisruptionsByRegion(region, "outage");
+  if (activeOutages.length === 0 && pincode) {
+    activeOutages = getDisruptionsByRegion(city, "outage");
+  }
+  
+  const activeOutage = activeOutages.length > 0 ? activeOutages[0] : null;
+
+  if (activeOutage) {
+    return {
+      active: true,
+      type: "outage",
+      severity: activeOutage.severity,
+      source: activeOutage.source,
+      confidence: 0.95,
+      details: `Municipal API reported an active outage in ${activeOutage.region}. Severity: ${activeOutage.severity}.`,
+      payout: Math.round(OUTAGE_BASE_PAYOUT * (activeOutage.severity === "full" ? 1.2 : 1.0)),
+    };
+  }
+
+  // Fallback to weather heuristic if no active outage reported
   let outageScore = 0;
   const reasons: string[] = [];
 
-  // Heavy rain → infrastructure stress
-  if (weather.rain > 40) {
-    outageScore += 45;
-    reasons.push(`Extreme rainfall (${weather.rain}mm) causing infrastructure stress`);
-  } else if (weather.rain > 25) {
-    outageScore += 25;
-    reasons.push(`Heavy rainfall (${weather.rain}mm) may impact platform uptime`);
-  }
+  if (weather.rain > 40) { outageScore += 45; reasons.push(`Extreme rainfall (${weather.rain}mm) causing infrastructure stress`); }
+  else if (weather.rain > 25) { outageScore += 25; reasons.push(`Heavy rainfall (${weather.rain}mm) may impact platform uptime`); }
 
-  // High wind → cell tower / power disruption
-  if (weather.windSpeed > 15) {
-    outageScore += 20;
-    reasons.push(`High wind speed (${weather.windSpeed} m/s) risk to connectivity`);
-  }
+  if (weather.windSpeed > 15) { outageScore += 20; reasons.push(`High wind speed (${weather.windSpeed} m/s) risk to connectivity`); }
+  if (weather.condition === "Thunderstorm") { outageScore += 25; reasons.push("Thunderstorm activity — power grid vulnerability"); }
 
-  // Thunderstorm conditions
-  if (weather.condition === "Thunderstorm") {
-    outageScore += 25;
-    reasons.push("Thunderstorm activity — power grid vulnerability");
-  }
-
-  // Time-of-day factor (off-peak hours = more likely to have unresolved outages)
   const hour = new Date().getHours();
-  if (hour >= 1 && hour <= 5) {
-    outageScore += 10;
-    reasons.push("Off-peak hours — maintenance window overlap");
-  }
+  if (hour >= 1 && hour <= 5) { outageScore += 10; reasons.push("Off-peak hours — maintenance window overlap"); }
 
   const active = outageScore >= 50;
-  const severity: DisruptionResult["severity"] =
-    outageScore >= 70 ? "full" : outageScore >= 50 ? "partial" : "none";
+  const severity: DisruptionResult["severity"] = outageScore >= 70 ? "full" : outageScore >= 50 ? "partial" : "none";
 
   return {
     active,
     type: "outage",
     severity,
-    source: "Weather-Infrastructure Correlation Model",
+    source: "Weather-Infrastructure Correlation Model (Fallback)",
     confidence: Math.min(outageScore / 100, 0.95),
     details: reasons.length > 0 ? reasons.join(". ") : "No significant outage indicators detected.",
     payout: active ? Math.round(OUTAGE_BASE_PAYOUT * (severity === "full" ? 1.2 : 1.0)) : 0,
@@ -88,22 +93,16 @@ export function evaluateOutageTrigger(weather: WeatherData): DisruptionResult {
 
 const BANDH_BASE_PAYOUT = 720;
 
-// Simulated gazette — in production, this would be fetched from an external source
-const GAZETTE_FEED = [
-  { date: "2026-04-26", region: "mumbai", type: "Maharashtra Bandh", severity: "full" as const, source: "State Government Gazette" },
-  { date: "2026-05-01", region: "all", type: "May Day Strike", severity: "partial" as const, source: "Labour Union Coalition" },
-];
-
-export function evaluateBandhTrigger(city: string = "mumbai"): DisruptionResult {
-  const today = new Date().toISOString().split("T")[0];
-  const cityKey = city.toLowerCase().trim();
-
-  // Check gazette feed for active bandh
-  const activeBandh = GAZETTE_FEED.find(
-    (entry) =>
-      entry.date === today &&
-      (entry.region === "all" || entry.region === cityKey)
-  );
+export function evaluateBandhTrigger(city: string = "mumbai", pincode?: string): DisruptionResult {
+  const region = pincode ? getPincodeLocation(pincode).locality : city;
+  
+  // Check exact locality first, then fallback to city
+  let activeBandhs = getDisruptionsByRegion(region, "bandh");
+  if (activeBandhs.length === 0 && pincode) {
+    activeBandhs = getDisruptionsByRegion(city, "bandh");
+  }
+  
+  const activeBandh = activeBandhs.length > 0 ? activeBandhs[0] : null;
 
   if (activeBandh) {
     return {
@@ -112,7 +111,7 @@ export function evaluateBandhTrigger(city: string = "mumbai"): DisruptionResult 
       severity: activeBandh.severity,
       source: activeBandh.source,
       confidence: 0.90,
-      details: `${activeBandh.type} declared for ${activeBandh.date}. Source: ${activeBandh.source}. Gig platform activity expected to drop 80–100%.`,
+      details: `Active Bandh declared via Municipal API for ${activeBandh.region}. Severity: ${activeBandh.severity}. Source: ${activeBandh.source}.`,
       payout: Math.round(BANDH_BASE_PAYOUT * (activeBandh.severity === "full" ? 1.0 : 0.75)),
     };
   }
@@ -121,7 +120,7 @@ export function evaluateBandhTrigger(city: string = "mumbai"): DisruptionResult 
     active: false,
     type: "bandh",
     severity: "none",
-    source: "Government Gazette Feed + News API",
+    source: "Municipal API",
     confidence: 0.0,
     details: "No active bandh or civil shutdown declarations found for this region.",
     payout: 0,
@@ -141,10 +140,11 @@ export interface CombinedDisruptionResult {
 
 export function evaluateAllDisruptions(
   weather: WeatherData,
-  city: string = "mumbai"
+  city: string = "mumbai",
+  pincode?: string
 ): CombinedDisruptionResult {
-  const outage = evaluateOutageTrigger(weather);
-  const bandh = evaluateBandhTrigger(city);
+  const outage = evaluateOutageTrigger(weather, city, pincode);
+  const bandh = evaluateBandhTrigger(city, pincode);
 
   const anyActive = outage.active || bandh.active;
   const primary = bandh.active ? bandh : outage.active ? outage : null;

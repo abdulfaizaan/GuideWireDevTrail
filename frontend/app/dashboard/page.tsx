@@ -236,11 +236,28 @@ export default function DashboardPage() {
     setSimulating(true);
     setTimelineStep(0);
     const fraudDemo = generateFraudDemoData(trigger.id);
+
+    // Fetch the real-time evaluated payout scaling from the backend
+    let evaluatedPayout = trigger.payout;
+    try {
+      const earnings = user?.dailyEarnings || 500;
+      const res = await fetch(`${API_URL}/api/triggers/weather?demo=true&city=Mumbai&dailyEarnings=${earnings}`);
+      if (res.ok) {
+        const data = await res.json();
+        // demo=true boosts rain to trigger Heavy Rain (base 680)
+        // We calculate the dynamic income scaling factor the backend applied
+        const scaleFactor = data.triggerPayout / 680;
+        evaluatedPayout = Math.round(trigger.payout * scaleFactor);
+      }
+    } catch (e) {
+      console.error("Failed to fetch dynamic payout:", e);
+    }
+
     const newClaim: Claim = {
       id: `CLM-${String(claims.length + 1).padStart(3, "0")}`,
       trigger: trigger.icon, type: trigger.label,
       date: new Date().toISOString().split("T")[0],
-      payout: trigger.payout, status: "Processing...",
+      payout: evaluatedPayout, status: "Processing...",
       fraudScore: 0,
       timeline: [`Detecting ${trigger.label}...`, "Checking GPS...", "Verifying Oracle...", "Checking Activity...", `Decision Pending...`],
     };
@@ -261,7 +278,7 @@ export default function DashboardPage() {
           type: trigger.label,
           trigger: trigger.icon,
           date: newClaim.date,
-          payout: trigger.payout,
+          payout: evaluatedPayout,
           claimed_rain: trigger.id === "rain" ? 45 : 0,
           gps_speed: 30,
           user_trust_score: 85,
@@ -284,7 +301,7 @@ export default function DashboardPage() {
         if (newClaim.status === "Rejected") {
           newClaim.timeline[4] = "Fraud Blocked 🔴";
         } else {
-          newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+          newClaim.timeline[4] = `₹${evaluatedPayout} Sent ✅`;
         }
 
         if (data.payout) {
@@ -293,11 +310,11 @@ export default function DashboardPage() {
         }
       } else {
         newClaim.status = "Transferred";
-        newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+        newClaim.timeline[4] = `₹${evaluatedPayout} Sent ✅`;
       }
     } catch {
       newClaim.status = "Transferred";
-      newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+      newClaim.timeline[4] = `₹${evaluatedPayout} Sent ✅`;
       setTimelineStep(4);
       await new Promise((r) => setTimeout(r, 600));
     }
@@ -371,7 +388,7 @@ export default function DashboardPage() {
       trigger: trigger.icon,
       type: result.triggerLabel || trigger.label,
       date: new Date().toISOString().split("T")[0],
-      payout: trigger.payout,
+      payout: result.triggerPayout || trigger.payout,
       status: "Processing...",
       fraudScore: 0,
       timeline: [
@@ -399,7 +416,7 @@ export default function DashboardPage() {
           type: result.triggerLabel || trigger.label,
           trigger: trigger.icon,
           date: newClaim.date,
-          payout: trigger.payout,
+          payout: result.triggerPayout || trigger.payout,
           claimed_rain: result.weather.rain,
           gps_speed: 30,
           user_trust_score: 85,
@@ -422,7 +439,7 @@ export default function DashboardPage() {
         if (newClaim.status === "Rejected") {
           newClaim.timeline[4] = "Fraud Blocked 🔴";
         } else {
-          newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+          newClaim.timeline[4] = `₹${result.triggerPayout || trigger.payout} Sent ✅`;
         }
 
         if (data.payout) {
@@ -431,11 +448,11 @@ export default function DashboardPage() {
         }
       } else {
         newClaim.status = "Transferred";
-        newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+        newClaim.timeline[4] = `₹${result.triggerPayout || trigger.payout} Sent ✅`;
       }
     } catch {
       newClaim.status = "Transferred";
-      newClaim.timeline[4] = `₹${trigger.payout} Sent ✅`;
+      newClaim.timeline[4] = `₹${result.triggerPayout || trigger.payout} Sent ✅`;
       setTimelineStep(4);
       await new Promise((r) => setTimeout(r, 800));
     }

@@ -23,6 +23,10 @@ export interface SustainabilityMetrics {
   avgPremiumPerPolicy: number;
   avgClaimRate: number;           // claims per policy per month
 
+  // Actuarial Modifiers
+  dynamicPremiumModifier: number; // Multiplier for user premiums
+  payoutModifier: number;         // Multiplier for claim payouts
+
   // Risk indicators
   healthStatus: "HEALTHY" | "CAUTION" | "AT_RISK";
   recommendations: string[];
@@ -139,6 +143,22 @@ export function computeSustainabilityMetrics(
     recommendations.push("All financial indicators are within healthy ranges. Continue monitoring.");
   }
 
+  // Calculate dynamic actuarial modifiers
+  let dynamicPremiumModifier = 1.0;
+  let payoutModifier = 1.0;
+
+  if (healthStatus === "AT_RISK") {
+    dynamicPremiumModifier = 1.15; // Increase premiums by 15% due to poor reserve health
+    payoutModifier = 0.85;         // Reduce payouts by 15% to stabilize pool
+  } else if (healthStatus === "CAUTION") {
+    dynamicPremiumModifier = 1.05; // 5% premium bump
+    payoutModifier = 0.95;         // 5% payout haircut
+  } else if (reserveAdequacy > 150) {
+    // Excess reserves — distribute value back to network
+    dynamicPremiumModifier = 0.90; // 10% premium discount
+    payoutModifier = 1.10;         // 10% payout boost
+  }
+
   return {
     lossRatio: Math.round(lossRatio * 10000) / 100,       // as percentage
     combinedRatio: Math.round(combinedRatio * 10000) / 100,
@@ -151,6 +171,8 @@ export function computeSustainabilityMetrics(
     currentPolicyCount,
     avgPremiumPerPolicy,
     avgClaimRate: Math.round(avgClaimRate * 10000) / 100, // as percentage
+    dynamicPremiumModifier,
+    payoutModifier,
     healthStatus,
     recommendations,
   };

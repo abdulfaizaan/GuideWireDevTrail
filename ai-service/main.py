@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import xgboost as xgb
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
+from sklearn.metrics import (
 from sklearn.metrics import (
     f1_score,
     mean_absolute_error,
@@ -132,6 +133,10 @@ def build_fraud_features(
     gps_speed: np.ndarray,
     user_trust_score: np.ndarray,
     is_blacklisted_zone: np.ndarray,
+    historical_weather_risk: np.ndarray,
+    historical_claim_frequency: np.ndarray,
+    geographic_risk_rating: np.ndarray,
+    vehicle_type: np.ndarray,
 ) -> np.ndarray:
     weather_diff = np.abs(claimed_rain - actual_rain)
     weather_ratio = claimed_rain / np.maximum(actual_rain + 1.0, 1.0)
@@ -154,8 +159,14 @@ def build_fraud_features(
             dry_oracle,
             trust_inverse,
             low_trust_blacklisted,
+            historical_weather_risk,
             weather_diff * suspicious_speed,
             weather_diff * trust_inverse,
+            historical_weather_risk * dry_oracle,
+            historical_claim_frequency,
+            geographic_risk_rating,
+            vehicle_type,
+            geographic_risk_rating * historical_claim_frequency
         ]
     )
 
@@ -167,6 +178,10 @@ def generate_fraud_training_data(n_samples: int = 16000) -> tuple[np.ndarray, np
     gps_speed = np.clip(RNG.normal(32, 22, n_samples), 0, 140)
     user_trust_score = np.clip(RNG.normal(70, 18, n_samples), 5, 99)
     is_blacklisted_zone = RNG.binomial(1, 0.18, n_samples).astype(float)
+    historical_weather_risk = RNG.uniform(0.1, 0.9, n_samples)
+    historical_claim_frequency = RNG.integers(0, 5, n_samples).astype(float)
+    geographic_risk_rating = RNG.uniform(0.1, 0.9, n_samples)
+    vehicle_type = RNG.integers(1, 5, n_samples).astype(float) # 1: Bike, 2: Scooter, 3: Auto, 4: Car
 
     coordinated_idx = RNG.choice(n_samples, size=n_samples // 6, replace=False)
     claimed_rain[coordinated_idx] += RNG.uniform(12, 36, size=len(coordinated_idx))
@@ -190,6 +205,9 @@ def generate_fraud_training_data(n_samples: int = 16000) -> tuple[np.ndarray, np
         + 1.35 * is_blacklisted_zone
         + 0.075 * trust_penalty
         + 0.095 * rain_overclaim
+        + 0.85 * (1.0 - historical_weather_risk) * rain_overclaim # Low historical risk + overclaim = higher fraud chance
+        + 0.70 * historical_claim_frequency # High past claims = higher fraud risk
+        + 1.25 * geographic_risk_rating * (1.0 - (user_trust_score / 100.0))
         + 1.15 * ((weather_diff > 18) & (gps_speed > 68))
         + 1.30 * ((user_trust_score < 30) & (is_blacklisted_zone > 0))
         + 1.15 * ((claimed_rain > 32) & (actual_rain < 7))
@@ -198,7 +216,7 @@ def generate_fraud_training_data(n_samples: int = 16000) -> tuple[np.ndarray, np
     fraud_probability = np.clip(fraud_probability + RNG.normal(0.0, 0.035, n_samples), 0.0, 1.0)
     labels = (fraud_probability > 0.52).astype(int)
 
-    X = build_fraud_features(claimed_rain, actual_rain, gps_speed, user_trust_score, is_blacklisted_zone)
+    X = build_fraud_features(claimed_rain, actual_rain, gps_speed, user_trust_score, is_blacklisted_zone, historical_weather_risk, historical_claim_frequency, geographic_risk_rating, vehicle_type)
     return X, labels
 
 
@@ -212,27 +230,23 @@ def choose_best_threshold(probabilities: np.ndarray, labels: np.ndarray) -> floa
     return float(clamp(thresholds[best_index], 0.35, 0.8))
 
 
-def train_fraud_models() -> tuple[IsolationForest, xgb.XGBClassifier, float, dict[str, float]]:
+def train_fraud_models() -> tuple[IsolationForest, RandomForestClassifier, float, dict[str, float]]:
     X, y = generate_fraud_training_data()
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y, random_state=SEED)
 
     fraud_rate = max(float(y_train.mean()), 1e-6)
     scale_pos_weight = float((1.0 - fraud_rate) / fraud_rate)
 
-    classifier = xgb.XGBClassifier(
-        n_estimators=420,
-        max_depth=6,
-        learning_rate=0.045,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_lambda=1.0,
-        reg_alpha=0.03,
-        min_child_weight=1,
-        scale_pos_weight=scale_pos_weight,
+    classifier = RandomForestClassifier(
+        n_estimators=300,
+        max_depth=12,
+        min_samples_split=4,
+        min_samples_leaf=2,
+        class_weight={0: 1.0, 1: scale_pos_weight},
         random_state=SEED,
-        eval_metric="logloss",
+        n_jobs=-1
     )
-    classifier.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+    classifier.fit(X_train, y_train)
 
     anomaly_model = IsolationForest(
         n_estimators=250,
@@ -282,7 +296,7 @@ def health():
         "service": "gigshield-ai",
         "models": {
             "premium_model": "XGBoostRegressor",
-            "fraud_model": "XGBoostClassifier + IsolationForest",
+            "fraud_model": "RandomForestClassifier + IsolationForest",
         },
         "premium_metrics": premium_metrics,
         "fraud_metrics": fraud_metrics,
@@ -323,6 +337,11 @@ class PredictFraudRequest(BaseModel):
     gps_speed: float
     user_trust_score: float
     is_blacklisted_zone: int
+    location: str = "Mumbai"
+    historical_weather_risk: float = 0.5
+    historical_claim_frequency: int = 0
+    geographic_risk_rating: float = 0.5
+    vehicle_type: int = 1
 
 
 class PredictFraudResponse(BaseModel):
@@ -341,6 +360,10 @@ def predict_fraud(req: PredictFraudRequest):
         np.array([req.gps_speed], dtype=float),
         np.array([req.user_trust_score], dtype=float),
         np.array([float(req.is_blacklisted_zone)], dtype=float),
+        np.array([req.historical_weather_risk], dtype=float),
+        np.array([float(req.historical_claim_frequency)], dtype=float),
+        np.array([req.geographic_risk_rating], dtype=float),
+        np.array([float(req.vehicle_type)], dtype=float),
     )
     weather_diff = abs(req.claimed_rain - req.actual_rain)
 
