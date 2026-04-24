@@ -158,7 +158,7 @@ function riskColor(level: string): string {
 export default function DashboardPage() {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
-  const [user, setUser] = useState<{plan?: string; riskScore?: number; phone?: string; enrolledAt?: string; dailyEarnings?: number; pincode?: string} | null>(null);
+  const [user, setUser] = useState<{plan?: string; riskScore?: number; phone?: string; enrolledAt?: string; dailyEarnings?: number; pincode?: string; city?: string; profession?: string} | null>(null);
   const [coolingOff, setCoolingOff] = useState<{active: boolean; hoursLeft: number}>({ active: false, hoursLeft: 0 });
   
   const [dpaHistory, setDpaHistory] = useState<WeeklyEntry[]>([]);
