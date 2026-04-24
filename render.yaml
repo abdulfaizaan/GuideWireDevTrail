@@ -1,0 +1,35 @@
+services:
+  # ── Backend API (Node.js/Express) ──────────────────────────────────────────
+  - type: web
+    name: gigshield-backend
+    runtime: node
+    region: singapore
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: node dist/index.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: ML_SERVICE_URL
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: WAQI_API_TOKEN
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PORT
+        value: 3001
+
+  # ── AI/ML Service (FastAPI/Python) ─────────────────────────────────────────
+  - type: web
+    name: gigshield-ai
+    runtime: python
+    region: singapore
+    rootDir: ai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
